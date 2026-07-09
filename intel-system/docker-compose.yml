@@ -1,0 +1,66 @@
+# Default: infra only — FastAPI runs natively for fast reloads.
+# For end-to-end Jobs Module testing run all services:
+#   docker compose --profile full up -d
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: intel
+      POSTGRES_PASSWORD: intel_dev
+      POSTGRES_DB: intel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - cd_data:/datastore
+
+  # ── Jobs Module standalone test service ───────────────────────────────────
+  # Usage: docker compose --profile full up -d
+  # After startup: POST http://localhost:8000/admin/jobs/scrape-now
+  #                POST http://localhost:8000/admin/jobs/digest-now
+  #                GET  http://localhost:8000/admin/jobs/preview
+  api:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override DB URL to point at the compose postgres service (not localhost)
+      DATABASE_URL: postgresql+asyncpg://intel:intel_dev@postgres:5432/intel
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Mount source for live reload during testing (remove for prod-like test)
+      - .:/app
+    restart: on-failure
+
+volumes:
+  pgdata: {}
+  n8n_data: {}
+  cd_data: {}

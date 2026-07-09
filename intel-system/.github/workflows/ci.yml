@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: intel
+          POSTGRES_PASSWORD: intel_dev
+          POSTGRES_DB: intel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]" --system
+
+      - name: Ruff lint
+        run: ruff check app/ tests/
+
+      - name: Mypy type check
+        run: mypy app/
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://intel:intel_dev@localhost:5432/intel_test
+          APP_ENV: test
+          INGEST_TOKEN: dev-token
+        run: alembic upgrade head
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://intel:intel_dev@localhost:5432/intel_test
+          APP_ENV: test
+          INGEST_TOKEN: dev-token
+        run: pytest tests/ -v -m "not integration"
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://intel:intel_dev@localhost:5432/intel_test
+          APP_ENV: test
+          INGEST_TOKEN: dev-token
+        run: pytest tests/ -v -m integration
+
+  smoke-free-apis:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv && uv pip install httpx --system
+      - name: Smoke test HN API
+        run: |
+          python -c "
+          import asyncio, httpx
+          async def check():
+              async with httpx.AsyncClient(timeout=10) as c:
+                  r = await c.get('https://hn.algolia.com/api/v1/search', params={'query': 'who is hiring', 'tags': 'story', 'hitsPerPage': 1})
+                  assert r.status_code == 200
+                  assert len(r.json().get('hits', [])) >= 1
+          asyncio.run(check())
+          print('HN API OK')
+          "
+      - name: Smoke test Remotive API
+        run: |
+          python -c "
+          import asyncio, httpx
+          async def check():
+              async with httpx.AsyncClient(timeout=10) as c:
+                  r = await c.get('https://remotive.com/api/remote-jobs', params={'limit': 5})
+                  assert r.status_code == 200
+                  assert len(r.json().get('jobs', [])) >= 1
+          asyncio.run(check())
+          print('Remotive API OK')
+          "

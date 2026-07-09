@@ -1,0 +1,99 @@
+# ==========================================
+# Daily Intel - GitHub Ingest ignore list
+# Only tracks the core backend, scrapers & scheduler
+# ==========================================
+
+# --- Operating System & IDE Temp Files ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# --- Environment & Sensitive Files ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+**/intel-system/.env
+**/adzuna/.env
+
+# --- Python & Cache Files ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# --- Node & Package Manager Files ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+
+# --- Virtual Environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Excluded Directories ---
+docs/
+experiments/
+frontend/
+adzuna/
+intel-system/scripts/
+intel-system/reports/
+
+# --- Specific Agent & AI Assistant Files ---
+.claude/
+AGENTS.md
+.codexignore
+failed.md
+Failed.md
+*failed.md
+jobfix.md
+JOB_FIX.md
+*jobfix.md
+extractmail.md
+*extractmail.md
+
+# --- Experimental, Analytical & Diagnostic Scripts ---
+adzuna.text
+decode_email.py
+decoded_email.py
+decoded_reference.html
+extract.py
+extract_email.py
+extract_text.py
+find_json_email.py
+job_filtering_analysis*
+job_module_analysis*
+scratch_table_chunks.txt
+
+# --- intel-system Specific Exclusions ---
+intel-system/Failed.md
+intel-system/JOB_FIX.md
+intel-system/filtering-workflow.md
+intel-system/output.md
+intel-system/test-OpenRouter.py
+
+# --- Tests that reveal target companies ---
+intel-system/tests/test_ev_filter_live.py
+intel-system/tests/test_job_filtering_rules.py
+

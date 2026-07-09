@@ -1,0 +1,25 @@
+{
+  "source_identifier": "test_group_001",
+  "items": [
+    {
+      "external_id": "msg_001",
+      "occurred_at": "2026-05-16T06:00:00+05:30",
+      "url": null,
+      "text": "OpenAI just announced GPT-5 with native voice and vision. Context window is 2M tokens.",
+      "payload": {
+        "sender": "alice",
+        "group": "Tech Alpha"
+      }
+    },
+    {
+      "external_id": "msg_002",
+      "occurred_at": "2026-05-16T06:01:00+05:30",
+      "url": "https://techcrunch.com/2026/05/16/sample",
+      "text": "Anthropic raises $5B Series E. Claude 4 ships with memory and computer use.",
+      "payload": {
+        "sender": "bob",
+        "group": "Tech Alpha"
+      }
+    }
+  ]
+}

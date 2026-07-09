@@ -1,0 +1,16 @@
+{
+  "hits": [
+    {
+      "objectID": "40000001",
+      "comment_text": "Acme AI | Senior ML Engineer | Bangalore, India (Remote OK)<p>We&#x27;re a Series B startup building LLM infrastructure. Looking for Python + PyTorch experts.<p>Apply: https://acme.ai/jobs",
+      "created_at_i": 1747353600,
+      "url": null
+    },
+    {
+      "objectID": "40000002",
+      "comment_text": "DataStack | Data Engineer | Remote<p>5+ years with Spark, Airflow, dbt. Competitive comp.<p>jobs@datastack.io",
+      "created_at_i": 1747353700,
+      "url": null
+    }
+  ]
+}

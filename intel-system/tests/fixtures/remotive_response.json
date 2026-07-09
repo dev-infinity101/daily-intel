@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "id": 12345,
+      "url": "https://remotive.com/remote-jobs/software-dev/senior-backend-engineer-12345",
+      "title": "Senior Backend Engineer",
+      "company_name": "Acme Corp",
+      "candidate_required_location": "Worldwide",
+      "job_type": "Software Development",
+      "publication_date": "2026-05-15T10:00:00",
+      "description": "We are looking for a senior backend engineer with Python expertise..."
+    }
+  ]
+}
