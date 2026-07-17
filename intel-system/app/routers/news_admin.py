@@ -77,6 +77,54 @@ async def changedetection_webhook(payload: CDWebhookPayload) -> dict:
         await db.close()
 
 
+# ── Module 1: n8n RSS webhook ─────────────────────────────────────────────────
+
+class N8nWebhookPayload(BaseModel):
+    title: str | None = None
+    link: str | None = None
+    content: str | None = None
+    source: str | None = "n8n_rss"
+
+
+@router.post("/ingest/news/n8n-webhook")
+async def n8n_webhook(payload: N8nWebhookPayload) -> dict:
+    """Receive RSS items processed and forwarded by n8n."""
+    text = f"{payload.title or ''}. {payload.content or ''}".strip(". ")
+    if not text:
+        return {"status": "ignored", "reason": "empty_content"}
+
+    ok, hits = passes_filter(text)
+    if not ok:
+        log.info("news.n8n_keyword_miss", url=payload.link)
+        return {"status": "filtered", "reason": "no_keyword_match"}
+
+    item = IngestItem(
+        external_id=payload.link,
+        occurred_at=datetime.now(timezone.utc),
+        url=payload.link,
+        text=text[:4000],
+        payload=payload.model_dump(),
+    )
+    db = SessionLocal()
+    try:
+        result = await ingest_items(
+            db,
+            source_type="rss_global",
+            request=IngestRequest(
+                source_identifier=payload.source or "n8n",
+                items=[item],
+            ),
+        )
+        return {
+            "status": "ok",
+            "accepted": result.accepted,
+            "duplicates": result.duplicates,
+            "matched_keywords": hits,
+        }
+    finally:
+        await db.close()
+
+
 # ── Module 2: custom site management ─────────────────────────────────────────
 
 class CustomSiteIn(BaseModel):
@@ -147,6 +195,13 @@ async def trigger_linkedin_now() -> dict:
     """Immediately trigger the Apify LinkedIn hashtag search (Module 3b)."""
     from app.services.news.linkedin import poll_linkedin
     return await poll_linkedin()
+
+
+@router.post("/admin/news/process-now")
+async def process_news_now() -> dict:
+    """Immediately process unprocessed raw news items with the LLM pipeline."""
+    from app.services.news.news_pipeline import process_unprocessed_news
+    return await process_unprocessed_news()
 
 
 # ── Status / preview ─────────────────────────────────────────────────────────

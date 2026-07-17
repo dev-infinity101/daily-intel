@@ -25,36 +25,62 @@ log = structlog.get_logger()
 _BB_API_BASE = "https://api.browserbase.com/v1"
 
 
-async def _create_session() -> tuple[str, str]:
-    """Create a Browserbase session. Returns (session_id, connect_url)."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
-            f"{_BB_API_BASE}/sessions",
-            headers={
-                "x-bb-api-key": settings.browserbase_api_key,
-                "Content-Type": "application/json",
-            },
-            json={
-                "projectId": settings.browserbase_project_id,
-                "browserSettings": {
-                    "viewport": {"width": 1280, "height": 900},
-                },
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-        session_id: str = data["id"]
-        connect_url: str = data.get("connectUrl") or data.get("wsUrl") or ""
-        return session_id, connect_url
+async def _create_session() -> tuple[str, str, str]:
+    """Create a Browserbase session. Returns (session_id, connect_url, used_api_key)."""
+    keys = [
+        (settings.browserbase_api_key, settings.browserbase_project_id),
+        (settings.browserbase_api_key_secondary, settings.browserbase_project_id_secondary),
+    ]
+    
+    last_exc = None
+    for api_key, project_id in keys:
+        if not api_key or not project_id:
+            continue
+            
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    f"{_BB_API_BASE}/sessions",
+                    headers={
+                        "x-bb-api-key": api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "projectId": project_id,
+                        "browserSettings": {
+                            "viewport": {"width": 1280, "height": 900},
+                        },
+                    },
+                )
+                r.raise_for_status()
+                data = r.json()
+                session_id: str = data["id"]
+                connect_url: str = data.get("connectUrl") or data.get("wsUrl") or ""
+                return session_id, connect_url, api_key
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (402, 429):
+                log.warning(
+                    "browserbase.api_error_trying_fallback",
+                    status=exc.response.status_code,
+                    error=str(exc),
+                )
+                last_exc = exc
+                continue
+            raise
+            
+    if last_exc:
+        raise last_exc
+        
+    raise RuntimeError("No Browserbase API keys configured.")
 
 
-async def _close_session(session_id: str) -> None:
+async def _close_session(session_id: str, api_key: str) -> None:
     """Close a Browserbase session immediately — never leak idle minutes."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.delete(
                 f"{_BB_API_BASE}/sessions/{session_id}",
-                headers={"x-bb-api-key": settings.browserbase_api_key},
+                headers={"x-bb-api-key": api_key},
             )
         log.info("browserbase.session_closed", session_id=session_id)
     except Exception as exc:
@@ -104,16 +130,17 @@ async def fetch_via_browserbase(
     Returns (ev_jobs, session_id). session_id is None when unavailable.
     Always closes the session in a finally block.
     """
-    if not settings.browserbase_api_key:
+    if not settings.browserbase_api_key and not settings.browserbase_api_key_secondary:
         log.warning("browserbase.no_api_key", company=company_slug)
         return [], None
 
     session_id: str | None = None
+    used_api_key: str | None = None
     t_start = time.monotonic()
 
     try:
         log.info("browserbase.creating_session", company=company_slug, url=career_url)
-        session_id, connect_url = await _create_session()
+        session_id, connect_url, used_api_key = await _create_session()
         log.info("browserbase.session_created", company=company_slug, session_id=session_id)
 
         html = await _render_page(connect_url, career_url)
@@ -157,5 +184,5 @@ async def fetch_via_browserbase(
         )
         return [], session_id
     finally:
-        if session_id:
-            await _close_session(session_id)
+        if session_id and used_api_key:
+            await _close_session(session_id, used_api_key)

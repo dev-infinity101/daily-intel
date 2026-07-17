@@ -91,8 +91,8 @@ def _build_run_input(actor_id: str, run_input: dict) -> dict:
     return run_input
 
 
-async def _trigger_actor(actor_id: str, run_input: dict) -> str:
-    """Start an actor run and return the run ID.
+async def _trigger_actor(actor_id: str, run_input: dict) -> tuple[str, str]:
+    """Start an actor run and return the run ID and token used.
 
     Raises ApifyQuotaError on 402 (concurrent-run limit) or 429 (rate limit)
     so the orchestrator can stop all further T1 runs cleanly rather than
@@ -101,37 +101,48 @@ async def _trigger_actor(actor_id: str, run_input: dict) -> str:
     actor_path = actor_id.replace("/", "~")
     run_input = _build_run_input(actor_id, run_input)
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
-            f"{_APIFY_BASE}/acts/{actor_path}/runs",
-            params={"token": settings.apify_token},
-            json=run_input,
-        )
-        try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status in (402, 429):
-                raise ApifyQuotaError(
-                    f"Apify limit hit ({status}) — concurrent-run or rate limit exceeded"
-                ) from exc
-            raise
-        return r.json()["data"]["id"]
+        tokens_to_try = [settings.apify_token]
+        if settings.apify_token_secondary:
+            tokens_to_try.append(settings.apify_token_secondary)
+
+        for attempt, token in enumerate(tokens_to_try):
+            if not token:
+                continue
+            r = await client.post(
+                f"{_APIFY_BASE}/acts/{actor_path}/runs",
+                params={"token": token},
+                json=run_input,
+            )
+            try:
+                r.raise_for_status()
+                return r.json()["data"]["id"], token
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status in (402, 429):
+                    if attempt < len(tokens_to_try) - 1:
+                        log.warning("apify.primary_quota_hit_retrying_secondary", status=status)
+                        continue
+                    raise ApifyQuotaError(
+                        f"Apify limit hit ({status}) — concurrent-run or rate limit exceeded"
+                    ) from exc
+                raise
+        raise RuntimeError("No valid apify tokens available")
 
 
-async def _abort_apify_run(run_id: str) -> None:
+async def _abort_apify_run(run_id: str, token: str) -> None:
     """Abort a dangling Apify run to stop it consuming free-tier CU."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(
                 f"{_APIFY_BASE}/actor-runs/{run_id}/abort",
-                params={"token": settings.apify_token},
+                params={"token": token},
             )
         log.info("apify.run_aborted", run_id=run_id)
     except Exception as exc:
         log.warning("apify.abort_failed", run_id=run_id, error=str(exc))
 
 
-async def _wait_for_run(run_id: str, timeout: int = 600) -> str:
+async def _wait_for_run(run_id: str, token: str, timeout: int = 600) -> str:
     """Poll until the run finishes; return dataset ID.
 
     Retries transient HTTP errors (429, 503, network blips) up to 3 times
@@ -148,7 +159,7 @@ async def _wait_for_run(run_id: str, timeout: int = 600) -> str:
             try:
                 r = await client.get(
                     f"{_APIFY_BASE}/actor-runs/{run_id}",
-                    params={"token": settings.apify_token},
+                    params={"token": token},
                 )
                 r.raise_for_status()
                 consecutive_http_errors = 0
@@ -175,15 +186,15 @@ async def _wait_for_run(run_id: str, timeout: int = 600) -> str:
             await asyncio.sleep(10)
 
     # Abort the dangling run so it stops consuming CU
-    await _abort_apify_run(run_id)
+    await _abort_apify_run(run_id, token)
     raise TimeoutError(f"Apify run {run_id} did not finish within {timeout}s (aborted)")
 
 
-async def _fetch_dataset(dataset_id: str) -> list[dict]:
+async def _fetch_dataset(dataset_id: str, token: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.get(
             f"{_APIFY_BASE}/datasets/{dataset_id}/items",
-            params={"token": settings.apify_token, "format": "json"},
+            params={"token": token, "format": "json"},
         )
         r.raise_for_status()
         return r.json()  # type: ignore[return-value]
@@ -227,7 +238,7 @@ def _is_crawler_output(items: list[dict]) -> bool:
     return has_text and lacks_title
 
 
-async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str, career_url: str) -> list[JobIn]:
+async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str, career_url: str, token: str) -> list[JobIn]:
     """Extract structured jobs from Apify crawler page blobs.
 
     Uses the V3 extraction pipeline (extraction_utils) which:
@@ -279,7 +290,7 @@ async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str,
         if html_url and len(content) < 2000:
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
-                    r = await client.get(html_url, params={"token": settings.apify_token})
+                    r = await client.get(html_url, params={"token": token})
                     r.raise_for_status()
                     raw_html = r.text
                     stripped = _re.sub(r"<script[^>]*>.*?</script>", " ", raw_html, flags=_re.S | _re.I)
@@ -316,13 +327,13 @@ async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str,
 
 
 async def poll_actor(actor_id: str, company_slug: str, run_input: dict) -> list[JobIn]:
-    if not settings.apify_token:
+    if not settings.apify_token and not settings.apify_token_secondary:
         log.warning("apify.token_missing", company=company_slug)
         return []
-    run_id = await _trigger_actor(actor_id, run_input)
-    dataset_id = await _wait_for_run(run_id)
+    run_id, used_token = await _trigger_actor(actor_id, run_input)
+    dataset_id = await _wait_for_run(run_id, used_token)
     _MAX_PAGES = 3
-    raw_items_all = await _fetch_dataset(dataset_id)
+    raw_items_all = await _fetch_dataset(dataset_id, used_token)
     raw_items     = raw_items_all[:_MAX_PAGES]
 
     log.info(
@@ -339,7 +350,7 @@ async def poll_actor(actor_id: str, company_slug: str, run_input: dict) -> list[
         career_url = (run_input.get("startUrls") or [{}])[0].get("url", "")
         log.info("apify.crawler_output_detected", company=company_slug, pages=len(raw_items))
         try:
-            jobs = await _extract_jobs_from_crawler_items(raw_items, company_slug, career_url)
+            jobs = await _extract_jobs_from_crawler_items(raw_items, company_slug, career_url, used_token)
         except ExtractionError as exc:
             log.error(
                 "apify.extraction_error",
@@ -367,7 +378,7 @@ async def run_t1_apify(company) -> list[JobIn]:  # type: ignore[no-untyped-def]
         log.warning("apify.no_career_urls", company=company.slug)
         return []
 
-    if not settings.apify_token:
+    if not settings.apify_token and not settings.apify_token_secondary:
         log.warning("apify.no_token", company=company.slug)
         return []
 

@@ -218,24 +218,24 @@ async def jobs_digest_job() -> None:
 # Module 4 — News (Phase 3)
 # ---------------------------------------------------------------------------
 
-@scheduler.scheduled_job(
-    "cron",
-    hour="2,8,14,20",
-    minute=0,
-    timezone="Asia/Kolkata",
-    id="rss_poll",
-    max_instances=1,
-    misfire_grace_time=300,
-)
-async def rss_poll_job() -> None:
-    """Poll all global RSS feeds every 6 hours and ingest EV-relevant articles."""
-    from app.services.news.rss import poll_rss_feeds
-
-    try:
-        result = await poll_rss_feeds()
-        log.info("rss_poll.done", **result)
-    except Exception:
-        log.exception("rss_poll.failed")
+# @scheduler.scheduled_job(
+#     "cron",
+#     hour="2,8,14,20",
+#     minute=0,
+#     timezone="Asia/Kolkata",
+#     id="rss_poll",
+#     max_instances=1,
+#     misfire_grace_time=300,
+# )
+# async def rss_poll_job() -> None:
+#     """Poll all global RSS feeds every 6 hours and ingest EV-relevant articles."""
+#     from app.services.news.rss import poll_rss_feeds
+#
+#     try:
+#         result = await poll_rss_feeds()
+#         log.info("rss_poll.done", **result)
+#     except Exception:
+#         log.exception("rss_poll.failed")
 
 
 @scheduler.scheduled_job(
@@ -280,3 +280,43 @@ async def linkedin_news_poll_job() -> None:
         log.info("linkedin_news_poll.done", **result)
     except Exception:
         log.exception("linkedin_news_poll.failed")
+
+
+@scheduler.scheduled_job(
+    "cron",
+    hour=6,
+    minute=0,
+    timezone="Asia/Kolkata",
+    id="process_news_morning",
+    max_instances=1,
+    misfire_grace_time=300,
+)
+async def process_news_morning_job() -> None:
+    """Process raw news items into LLM summaries before the morning digest."""
+    from app.services.news.news_pipeline import process_unprocessed_news
+
+    try:
+        result = await process_unprocessed_news()
+        log.info("process_news.done", **result)
+    except Exception:
+        log.exception("process_news.failed")
+
+
+@scheduler.scheduled_job(
+    "cron",
+    hour=18,
+    minute=0,
+    timezone="Asia/Kolkata",
+    id="process_news_evening",
+    max_instances=1,
+    misfire_grace_time=300,
+)
+async def process_news_evening_job() -> None:
+    """Process raw news items into LLM summaries before the evening jobs digest."""
+    from app.services.news.news_pipeline import process_unprocessed_news
+
+    try:
+        result = await process_unprocessed_news()
+        log.info("process_news.done", **result)
+    except Exception:
+        log.exception("process_news.failed")

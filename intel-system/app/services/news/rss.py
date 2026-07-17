@@ -22,18 +22,21 @@ from app.services.news.keyword_filter import filter_items
 log = structlog.get_logger()
 
 RSS_FEEDS: list[dict[str, str]] = [
-    {"name": "electrek",       "url": "https://electrek.co/feed/"},
     {"name": "et_auto",        "url": "https://auto.economictimes.indiatimes.com/rss/topstories"},
-    {"name": "evadoption",     "url": "https://evadoption.com/feed/"},
-    {"name": "ev_magazine",    "url": "https://evmagazine.com/feed/"},
+    {"name": "chargedevs",     "url": "https://chargedevs.com/feed/"},
+    {"name": "et_auto_recent", "url": "https://auto.economictimes.indiatimes.com/rss/recentstories"},
+    {"name": "electrek",       "url": "https://electrek.co/feed/"},
     {"name": "techcrunch",     "url": "https://techcrunch.com/feed/"},
     {"name": "cnbctv18_auto",  "url": "https://www.cnbctv18.com/commonfeeds/v1/cne/rss/auto.xml"},
 ]
 
 
 async def _fetch_entries(url: str) -> list[Any]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
             r = await client.get(url)
             r.raise_for_status()
             content = r.text

@@ -30,6 +30,8 @@
   a.apply-btn:hover td { background-color:#312e81 !important; }
 
   @media only screen and (max-width:620px) {
+    body, #bodyTable { background-color: #ffffff !important; }
+    .main-container { border: 2px solid #f97316 !important; border-radius: 0 !important; }
     .wrap        { width:100% !important; }
     .header-td   { padding:24px 20px 28px !important; }
     .section-td  { padding:0 12px 16px !important; }
@@ -47,8 +49,8 @@
 <tr><td align="center" style="padding:32px 16px;">
 
   <!-- ══ CONTAINER ══ -->
-  <table class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation"
-    style="max-width:600px;width:600px;background-color:#fffaf5;border-radius:12px;">
+  <table class="wrap main-container" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation"
+    style="margin: 0 auto; max-width:600px;width:600px;background-color:#fffaf5;border-radius:12px;">
 
     <!-- ══ HEADER ══ -->
     <tr>
@@ -119,38 +121,25 @@
 
         {% for job in jobs %}
         <!-- Job card -->
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-          style="margin-bottom:{{ '0' if loop.last else '14px' }};
-            border:none;border-radius:10px;">
-          <tr>
-            <td class="card-td"
-              style="padding:18px 20px;background-color:transparent;border-radius:10px;">
-
+        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '14px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
               <!-- Company + score row -->
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-                style="margin-bottom:5px;">
-                <tr>
-                  <td valign="middle">
-                    <p style="margin:0;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:10px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:0.8px;color:#6366f1;">
-                      {{ job.company }}
-                    </p>
-                  </td>
-                  <td valign="middle" align="right">
-                    {% set score_pct = (job.rank_score * 100) | int %}
-                    {% if score_pct > 0 %}
-                    <p style="margin:0;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:10px;font-weight:600;
-                      color:{{ '#059669' if score_pct >= 80 else ('#d97706' if score_pct >= 60 else '#94a3b8') }};">
-                      &#9679;&nbsp;{{ score_pct }}%&nbsp;match
-                    </p>
-                    {% endif %}
-                  </td>
-                </tr>
-              </table>
+              <div style="margin-bottom:5px;">
+                <p style="margin:0;
+                  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                  font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:0.8px;color:#6366f1;">
+                  {{ job.company }}
+                </p>
+                {% set score_pct = (job.rank_score * 100) | int %}
+                {% if score_pct > 0 %}
+                <p style="margin:0;
+                  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                  font-size:10px;font-weight:600;
+                  color:{{ '#059669' if score_pct >= 80 else ('#d97706' if score_pct >= 60 else '#94a3b8') }};">
+                  &#9679;&nbsp;{{ score_pct }}%&nbsp;match
+                </p>
+                {% endif %}
+              </div>
 
               <!-- Job title -->
               <p style="margin:0 0 8px;
@@ -178,17 +167,15 @@
               {% endif %}
 
               <!-- Tags + Apply button row -->
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
-                <tr>
-                  <!-- Tags cell -->
-                  <td valign="middle" style="padding-right:12px;">
+              <div style="margin-top:4px;">
+                <div style="margin-bottom:12px;">
                     {% if job.location %}
                     <span style="display:inline-block;
                       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                       font-size:11px;font-weight:500;
                       padding:3px 9px;border-radius:99px;
                       background-color:#f1f5f9;color:#475569;
-                      margin-right:4px;white-space:nowrap;">
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
                       &#128205;&nbsp;{{ job.location }}
                     </span>
                     {% endif %}
@@ -198,7 +185,7 @@
                       font-size:11px;font-weight:500;
                       padding:3px 9px;border-radius:99px;
                       background-color:#f0fdf4;color:#15803d;
-                      margin-right:4px;white-space:nowrap;">
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
                       Remote
                     </span>
                     {% endif %}
@@ -208,7 +195,7 @@
                       font-size:11px;font-weight:500;
                       padding:3px 9px;border-radius:99px;
                       background-color:#fff7ed;color:#c2410c;
-                      margin-right:4px;white-space:nowrap;">
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
                       {{ job.experience_level | title }}
                     </span>
                     {% endif %}
@@ -218,56 +205,26 @@
                       font-size:11px;font-weight:500;
                       padding:3px 9px;border-radius:99px;
                       background-color:#faf5ff;color:#7e22ce;
-                      margin-right:4px;white-space:nowrap;">
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
                       {{ skill }}
                     </span>
                     {% endfor %}
-                  </td>
+                </div>
 
-                  <!-- Apply button cell
-                       GMAIL FIX: background on <td>, text color on <span>.
-                       Gmail's `a{color:#1155CC!important}` targets <a> only,
-                       not child <span> elements. -->
-                  {% if job.job_url %}
-                  <td valign="middle" align="right" style="white-space:nowrap;">
-                    <!--[if mso]>
-                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
-                      href="{{ job.job_url }}"
-                      style="height:34px;v-text-anchor:middle;width:100px;"
-                      arcsize="20%" stroke="f" fillcolor="#3730a3">
-                      <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:12px;font-weight:700;">
-                        Apply &#8594;
-                      </center>
-                    </v:roundrect>
-                    <![endif]-->
-                    <!--[if !mso]><!-->
-                    <a href="{{ job.job_url }}" class="apply-btn"
-                      target="_blank" rel="noopener noreferrer">
-                      <table cellpadding="0" cellspacing="0" border="0" role="presentation">
-                        <tr>
-                          <td align="center"
-                            style="background-color:#3730a3;border-radius:4px;border:2px solid #312e81;
-                              padding:7px 18px;white-space:nowrap;">
-                            <span style="color:#ffffff !important;
-                              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                              font-size:12px;font-weight:700;
-                              letter-spacing:0.5px;line-height:1.2;">
-                              Apply&nbsp;&#8594;
-                            </span>
-                          </td>
-                        </tr>
-                      </table>
-                    </a>
-                    <!--<![endif]-->
-                  </td>
-                  {% endif %}
-                </tr>
-              </table>
-
-            </td>
-          </tr>
-        </table>
+                {% if job.job_url %}
+                <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
+                  <a href="{{ job.job_url }}" target="_blank" rel="noopener noreferrer"
+                    style="display:inline-block;padding:7px 18px;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+                      font-size:12px;font-weight:700;
+                      text-decoration:none;
+                      letter-spacing:0.5px;line-height:1.2;white-space:nowrap;">
+                    <span style="color:#ffffff !important;">Apply&nbsp;&#8594;</span>
+                  </a>
+                </div>
+                {% endif %}
+              </div>
+        </div>
         {% endfor %}
 
       </td>

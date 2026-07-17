@@ -332,7 +332,7 @@ def _parse_apify_linkedin_item(item: dict) -> JobIn | None:
 
 
 async def _fetch_via_apify(keyword: str, location: str = "India") -> list[JobIn]:
-    if not settings.apify_token:
+    if not settings.apify_token and not settings.apify_token_secondary:
         return []
 
     from app.services.jobs.apify_adapter import _fetch_dataset, _trigger_actor, _wait_for_run
@@ -347,9 +347,9 @@ async def _fetch_via_apify(keyword: str, location: str = "India") -> list[JobIn]
         "maxJobs": _PAGE_SIZE,
     }
     try:
-        run_id = await _trigger_actor(_APIFY_LINKEDIN_ACTOR, run_input)
-        dataset_id = await _wait_for_run(run_id)
-        raw_items = await _fetch_dataset(dataset_id)
+        run_id, used_token = await _trigger_actor(_APIFY_LINKEDIN_ACTOR, run_input)
+        dataset_id = await _wait_for_run(run_id, used_token)
+        raw_items = await _fetch_dataset(dataset_id, used_token)
     except Exception as exc:
         log.warning("linkedin.apify_failed", keyword=keyword, error=str(exc))
         return []
@@ -504,7 +504,7 @@ async def search_linkedin_ev_jobs_ranked(
 
         pairs = await _fetch_via_guest_api_paginated(term, location, max_pages)
 
-        if not pairs and settings.apify_token:
+        if not pairs and (settings.apify_token or settings.apify_token_secondary):
             log.info("linkedin.falling_back_to_apify", term=term)
             apify_jobs = await _fetch_via_apify(term, location)
             pairs = [(j, 1) for j in apify_jobs]

@@ -32,7 +32,7 @@ SEARCH_QUERIES: list[str] = ["#EV", "#charging", "#Mobility"]
 MAX_POSTS = 60
 
 
-async def _trigger_actor() -> str:
+async def _trigger_actor() -> tuple[str, str]:
     actor_id = settings.apify_linkedin_actor_id
     actor_path = actor_id.replace("/", "~")
     run_input = {
@@ -40,18 +40,32 @@ async def _trigger_actor() -> str:
         "maxPosts": MAX_POSTS,
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
-            f"{_APIFY_BASE}/acts/{actor_path}/runs",
-            params={"token": settings.apify_token},
-            json=run_input,
-        )
-        r.raise_for_status()
-        run_id: str = r.json()["data"]["id"]
-    log.info("linkedin.actor_started", run_id=run_id, queries=SEARCH_QUERIES)
-    return run_id
+        tokens_to_try = [settings.apify_token]
+        if settings.apify_token_secondary:
+            tokens_to_try.append(settings.apify_token_secondary)
+
+        for attempt, token in enumerate(tokens_to_try):
+            if not token:
+                continue
+            r = await client.post(
+                f"{_APIFY_BASE}/acts/{actor_path}/runs",
+                params={"token": token},
+                json=run_input,
+            )
+            try:
+                r.raise_for_status()
+                run_id: str = r.json()["data"]["id"]
+                log.info("linkedin.actor_started", run_id=run_id, queries=SEARCH_QUERIES)
+                return run_id, token
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (402, 429) and attempt < len(tokens_to_try) - 1:
+                    log.warning("linkedin.primary_quota_hit_retrying_secondary", status=exc.response.status_code)
+                    continue
+                raise
+        raise RuntimeError("No valid apify tokens available")
 
 
-async def _wait_for_dataset(run_id: str, timeout: int = 300) -> list[dict]:
+async def _wait_for_dataset(run_id: str, token: str, timeout: int = 300) -> list[dict]:
     dataset_id: str | None = None
     polls = timeout // 10
 
@@ -60,7 +74,7 @@ async def _wait_for_dataset(run_id: str, timeout: int = 300) -> list[dict]:
             await asyncio.sleep(10)
             r = await client.get(
                 f"{_APIFY_BASE}/actor-runs/{run_id}",
-                params={"token": settings.apify_token},
+                params={"token": token},
             )
             r.raise_for_status()
             data = r.json()["data"]
@@ -77,7 +91,7 @@ async def _wait_for_dataset(run_id: str, timeout: int = 300) -> list[dict]:
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.get(
             f"{_APIFY_BASE}/datasets/{dataset_id}/items",
-            params={"token": settings.apify_token, "format": "json"},
+            params={"token": token, "format": "json"},
         )
         r.raise_for_status()
         return r.json()  # type: ignore[return-value]
@@ -113,14 +127,14 @@ def _normalize_post(post: dict[str, Any]) -> IngestItem | None:
 
 
 async def poll_linkedin() -> dict[str, Any]:
-    if not settings.apify_token:
+    if not settings.apify_token and not settings.apify_token_secondary:
         log.warning("linkedin.apify_token_missing")
         return {"status": "skipped", "reason": "no_apify_token"}
 
     log.info("linkedin.poll_start", queries=SEARCH_QUERIES)
 
-    run_id = await _trigger_actor()
-    raw_posts = await _wait_for_dataset(run_id)
+    run_id, used_token = await _trigger_actor()
+    raw_posts = await _wait_for_dataset(run_id, used_token)
     log.info("linkedin.fetched", count=len(raw_posts))
 
     items = [n for p in raw_posts if (n := _normalize_post(p)) is not None]

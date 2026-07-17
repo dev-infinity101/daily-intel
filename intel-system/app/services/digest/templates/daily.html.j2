@@ -35,6 +35,8 @@
 
   /* === Mobile responsive === */
   @media only screen and (max-width:620px) {
+    body, #bodyTable { background-color: #ffffff !important; }
+    .main-container { border: 2px solid #f97316 !important; border-radius: 0 !important; }
     .full-width  { width:100% !important; min-width:100% !important; }
     .no-radius   { border-radius:0 !important; }
     .header-td   { padding:24px 20px 28px !important; }
@@ -57,8 +59,8 @@
   <!-- ╔══════════════════════════════════════╗
        ║         EMAIL CONTAINER             ║
        ╚══════════════════════════════════════╝ -->
-  <table class="full-width" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation"
-    style="max-width:600px;width:600px;background-color:#fffaf5;border-radius:12px;">
+  <table class="full-width main-container" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation"
+    style="margin: 0 auto; max-width:600px;width:600px;background-color:#fffaf5;border-radius:12px;">
 
     <!-- ══════════════════════════════════════
          HEADER
@@ -185,126 +187,105 @@
           {% set item_url  = url_map.get(item.raw_item_id) if item.raw_item_id else none %}
           {% set score_pct = (item.rank_score * 100) | int %}
 
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-          style="margin-bottom:{{ '0' if loop.last else '12px' }};">
-          <tr>
-            <td class="card-td"
-              style="padding:18px 20px;background-color:transparent;border:none;border-radius:10px;">
+        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '12px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
+          
+          <!-- company -->
+          {% if company %}
+          <div style="margin-bottom:6px;">
+            <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+              font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6366f1;">
+              {{ company }}
+            </p>
+          </div>
+          {% endif %}
 
-              <!-- company + match score -->
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-                style="margin-bottom:6px;">
-                <tr>
-                  <td valign="middle">
-                    {% if company %}
-                    <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6366f1;">
-                      {{ company }}
-                    </p>
-                    {% endif %}
-                  </td>
-                  <td valign="middle" align="right">
-                    {% if score_pct > 0 %}
-                    <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:10px;font-weight:600;
-                      color:{{ '#059669' if score_pct >= 80 else ('#d97706' if score_pct >= 60 else '#94a3b8') }};">
-                      &#9679;&nbsp;{{ score_pct }}%&nbsp;match
-                    </p>
-                    {% endif %}
-                  </td>
-                </tr>
-              </table>
+          <!-- job title -->
+          <p style="margin:0 0 14px;
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+            font-size:16px;font-weight:700;color:#0f172a;line-height:1.35;letter-spacing:-0.2px;">
+            {{ job_title }}
+          </p>
 
-              <!-- job title -->
-              <p style="margin:0 0 14px;
+          <!-- CTA button -->
+          {% if item_url %}
+          <!--[if mso]>
+          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+            href="{{ item_url }}"
+            style="height:38px;v-text-anchor:middle;width:148px;"
+            arcsize="16%" stroke="f" fillcolor="#3730a3">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;">
+              APPLY NOW &#8594;
+            </center>
+          </v:roundrect>
+          <![endif]-->
+          <!--[if !mso]><!-->
+          <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
+            <a href="{{ item_url }}" target="_blank" rel="noopener noreferrer"
+              style="display:inline-block;padding:10px 24px;
                 font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:16px;font-weight:700;color:#0f172a;line-height:1.35;letter-spacing:-0.2px;">
-                {{ job_title }}
-              </p>
-
-              <!-- CTA button
-                   Gmail overrides color on <a> with `a{color:#1155CC!important}`.
-                   Fix: background lives on <td> (not <a>), text color on <span>
-                   (Gmail selector only matches <a>, not child <span>).
-                   Outlook gets VML for proper rendering. -->
-              {% if item_url %}
-              <!--[if mso]>
-              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
-                href="{{ item_url }}"
-                style="height:38px;v-text-anchor:middle;width:148px;"
-                arcsize="16%" stroke="f" fillcolor="#3730a3">
-                <w:anchorlock/>
-                <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;">
-                  APPLY NOW &#8594;
-                </center>
-              </v:roundrect>
-              <![endif]-->
-              <!--[if !mso]><!-->
-              <table cellpadding="0" cellspacing="0" border="0" role="presentation">
-                <tr>
-                  <td align="center"
-                    style="background-color:#3730a3;border-radius:4px;border:2px solid #312e81;">
-                    <a href="{{ item_url }}" target="_blank" rel="noopener noreferrer"
-                      style="display:inline-block;padding:10px 24px;
-                        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                        font-size:13px;font-weight:700;
-                        text-decoration:none;
-                        letter-spacing:0.6px;line-height:1.2;white-space:nowrap;">
-                      <span style="color:#ffffff !important;">APPLY&nbsp;NOW&nbsp;&#8594;</span>
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <!--<![endif]-->
-              {% else %}
-              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                font-size:11px;color:#cbd5e1;font-style:italic;">
-                Link unavailable
-              </p>
-              {% endif %}
-
-            </td>
-          </tr>
-        </table>
+                font-size:13px;font-weight:700;
+                text-decoration:none;
+                letter-spacing:0.6px;line-height:1.2;white-space:nowrap;">
+              <span style="color:#ffffff !important;">APPLY&nbsp;NOW&nbsp;&#8594;</span>
+            </a>
+          </div>
+          <!--<![endif]-->
+          {% else %}
+          <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+            font-size:11px;color:#cbd5e1;font-style:italic;">
+            Link unavailable
+          </p>
+          {% endif %}
+        </div>
         {% endfor %}
 
         {% else %}
         {# ── Content Items (news, telegram, whatsapp, linkedin) ── #}
         {% for item in sec_items %}
-          {% set headline  = (item.summary or '')[:80] | trim %}
-          {% set body_text = ((item.summary or '')[80:] | trim) if item.summary and item.summary | length > 80 else '' %}
+          {% set _raw_sum = item.summary or '' %}
+          {% if ' | ' in _raw_sum %}
+            {% set parts = _raw_sum.split(' | ', 1) %}
+            {% set headline  = parts[0] | trim %}
+            {% set body_text = parts[1] | trim %}
+          {% else %}
+            {% set headline  = _raw_sum | trim %}
+            {% set body_text = '' %}
+          {% endif %}
           {% set score_pct = (item.rank_score * 100) | int %}
+          
+          {% if ' [Tags: ' in body_text %}
+            {% set body_parts = body_text.split(' [Tags: ') %}
+            {% set body_text = body_parts[0] %}
+            {% set tags_str = body_parts[1].replace(']', '') %}
+          {% else %}
+            {% set tags_str = '' %}
+          {% endif %}
 
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-          style="margin-bottom:{{ '0' if loop.last else '16px' }};">
-          <tr>
-            <td style="padding-bottom:{{ '0' if loop.last else '16px' }};
-              border-bottom:none;">
+        <div style="margin-bottom:{{ '0' if loop.last else '16px' }}; padding-bottom:{{ '0' if loop.last else '16px' }};">
+          <p style="margin:0 0 4px;
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+            font-size:14px;font-weight:600;color:#0f172a;line-height:1.45;">
+            {{ headline }}{% if body_text %}&hellip;{% endif %}
+          </p>
 
-              <p style="margin:0 0 4px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:14px;font-weight:600;color:#0f172a;line-height:1.45;">
-                {{ headline }}{% if body_text %}&hellip;{% endif %}
-              </p>
+          {% if body_text %}
+          <p style="margin:0 0 6px;
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+            font-size:13px;color:#4b5563;line-height:1.6;">
+            {{ body_text }}
+          </p>
+          {% endif %}
+          
+          {% if tags_str %}
+          <div style="margin-top:6px;">
+            {% for tag in tags_str.split(',') %}
+            <span style="display:inline-block; padding:2px 6px; margin:0 4px 4px 0; background-color:#e0e7ff; color:#4338ca; border-radius:4px; font-size:10px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">{{ tag | trim }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
 
-              {% if body_text %}
-              <p style="margin:0 0 6px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:13px;color:#4b5563;line-height:1.6;">
-                {{ body_text }}
-              </p>
-              {% endif %}
-
-              {% if score_pct > 0 %}
-              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                font-size:11px;color:#94a3b8;letter-spacing:0.2px;">
-                Score&nbsp;{{ score_pct }}%
-              </p>
-              {% endif %}
-
-            </td>
-          </tr>
-        </table>
+        </div>
         {% endfor %}
         {% endif %}
 

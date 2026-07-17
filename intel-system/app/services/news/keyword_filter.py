@@ -14,15 +14,14 @@ from app.schemas.ingest import IngestItem
 # (keyword, requires_word_boundary)
 KEYWORDS: list[tuple[str, bool]] = [
     ("EV", True),
-    ("EVSE", True),
-    ("Electric Vehicle", False),
-    ("Electric Vehicles", False),
     ("Emobility", False),
     ("E-mobility", False),
-    ("Mobility", False),
     ("Charging", False),
-    ("Last Mile", False),
-    ("Last-Mile", False),
+]
+
+LOCATION_KEYWORDS: list[str] = [
+    "india",
+    "indian",
 ]
 
 _BOUNDARY_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -47,6 +46,8 @@ def matched_keywords(text: str) -> list[str]:
 
 def passes_filter(text: str | None, url: str | None = None) -> tuple[bool, list[str]]:
     combined = f"{text or ''} {url or ''}".strip()
+    
+    # Check industry keywords
     hits = matched_keywords(combined)
     return bool(hits), hits
 

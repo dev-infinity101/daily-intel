@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     email_from: str = "intel@example.com"
     email_to: str = ""  # comma-separated list, parsed at send time
     apify_token: str = ""
+    apify_token_secondary: str = ""
     apify_webhook_secret: str = ""
     changedetection_webhook_secret: str = ""
     ingest_token: str = "dev-token"
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     # V3 — Browserbase
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
+    browserbase_api_key_secondary: str = ""
+    browserbase_project_id_secondary: str = ""
     # V3 — monthly budget guards (soft limits; 80% threshold triggers stop)
     apify_monthly_cu_limit: int = 1000          # free tier ~1 000 CU/month
     browserbase_monthly_minutes_limit: int = 60  # free tier ~60 min/month
