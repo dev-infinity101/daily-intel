@@ -58,8 +58,8 @@ async def _trigger_actor() -> tuple[str, str]:
                 log.info("twitter.actor_started", run_id=run_id, handles=TWITTER_HANDLES)
                 return run_id, token
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code in (402, 429) and attempt < len(tokens_to_try) - 1:
-                    log.warning("twitter.primary_quota_hit_retrying_secondary", status=exc.response.status_code)
+                if exc.response.status_code in (401, 402, 403, 429) and attempt < len(tokens_to_try) - 1:
+                    log.warning("twitter.primary_token_failed_retrying_secondary", status=exc.response.status_code)
                     continue
                 raise
         raise RuntimeError("No valid apify tokens available")
@@ -131,8 +131,20 @@ async def poll_twitter() -> dict[str, Any]:
 
     log.info("twitter.poll_start", handles=TWITTER_HANDLES)
 
-    run_id, used_token = await _trigger_actor()
-    raw_tweets = await _wait_for_dataset(run_id, used_token)
+    try:
+        run_id, used_token = await _trigger_actor()
+        raw_tweets = await _wait_for_dataset(run_id, used_token)
+    except httpx.HTTPStatusError as e:
+        log.error("twitter.apify_http_error", status_code=e.response.status_code, error=str(e))
+        return {
+            "status": "error", 
+            "reason": f"apify_http_error_{e.response.status_code}",
+            "message": "Apify API rejected the request. You may be out of free credits, or the actor is no longer available to your account."
+        }
+    except Exception as e:
+        log.error("twitter.apify_unknown_error", error=str(e))
+        return {"status": "error", "reason": "apify_unknown_error", "message": str(e)}
+
     log.info("twitter.fetched", count=len(raw_tweets))
 
     items = [n for t in raw_tweets if (n := _normalize_tweet(t)) is not None]

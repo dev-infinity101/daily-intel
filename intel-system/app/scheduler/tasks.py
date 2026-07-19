@@ -13,20 +13,15 @@ log = structlog.get_logger()
 async def run_daily_digest(db=None) -> None:  # type: ignore[assignment]
     """Assemble and send today's digest. Accepts an optional db session for
     admin-triggered sends; creates its own session otherwise."""
-    from app.services.digest.assembler import assemble_html, fetch_today_items, fetch_url_map, record_digest
-    from app.services.email.sender import send_email
-
+    from app.services.digest.assembler import run_news_digest
+    from app.services.jobs.job_digest import send_jobs_digest
     close_db = db is None
     if db is None:
         db = SessionLocal()
     try:
-        items = await fetch_today_items(db)
-        url_map = await fetch_url_map(db, items)
-        subject = "Your Daily Intel"
-        html = assemble_html(items, subject, url_map=url_map)
-        provider_id = await send_email(subject, html)
-        await record_digest(db, items, html, subject, provider_id)
-        log.info("digest.sent", item_count=len(items))
+        await run_news_digest(db)
+        await send_jobs_digest(db)
+        log.info("digest.all_sent")
     except Exception:
         log.exception("digest.failed")
     finally:

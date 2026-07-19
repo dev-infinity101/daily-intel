@@ -7,20 +7,21 @@ from app.scheduler.tasks import run_daily_digest
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# ── General digest ────────────────────────────────────────────────────────────
+# ── News digest ────────────────────────────────────────────────────────────
 
-@router.post("/digest/send-now")
-async def send_now(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
-    await run_daily_digest(db)
-    return {"status": "triggered"}
+@router.post("/news/digest-now")
+async def send_news_now(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    from app.services.digest.assembler import run_news_digest
+    await run_news_digest(db)
+    return {"status": "news_triggered"}
 
 
-@router.get("/digest/preview")
-async def preview_digest(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+@router.get("/news/preview")
+async def preview_news_digest(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
     from app.services.digest.assembler import assemble_html, fetch_today_items
 
     items = await fetch_today_items(db)
-    html = assemble_html(items, subject="[PREVIEW] Daily Intel")
+    html = assemble_html(items, subject="[PREVIEW] Daily Intel: News", template_name="news.html.j2")
     return {"item_count": len(items), "html_length": len(html)}
 
 

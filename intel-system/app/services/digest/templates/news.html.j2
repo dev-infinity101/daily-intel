@@ -36,7 +36,7 @@
   /* === Mobile responsive === */
   @media only screen and (max-width:620px) {
     body, #bodyTable { background-color: #ffffff !important; }
-    .main-container { border: 2px solid #f97316 !important; border-radius: 0 !important; }
+    .main-container { border: 1px solid #f97316 !important; border-radius: 24px !important; box-shadow: none !important; }
     .full-width  { width:100% !important; min-width:100% !important; }
     .no-radius   { border-radius:0 !important; }
     .header-td   { padding:24px 20px 28px !important; }
@@ -49,25 +49,25 @@
 </style>
 </head>
 
-<body style="margin:0;padding:0;background-color:#f97316;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+<body style="margin:0;padding:0;background-color:#fff0e6;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
 
 <!-- Outer table -->
 <table id="bodyTable" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-  style="background-color:#f97316;width:100%;">
-<tr><td align="center" style="padding:32px 16px;">
+  style="background-color:#fff0e6;width:100%;">
+<tr><td align="center" style="padding:40px 16px;">
 
   <!-- ╔══════════════════════════════════════╗
        ║         EMAIL CONTAINER             ║
        ╚══════════════════════════════════════╝ -->
   <table class="full-width main-container" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation"
-    style="margin: 0 auto; max-width:600px;width:600px;background-color:#fffaf5;border-radius:12px;">
+    style="margin: 0 auto; max-width:600px;width:600px;background-color:#ffffff;border-radius:24px;border:1px solid #f97316;box-shadow: 0 8px 24px rgba(249, 115, 22, 0.15);border-collapse:separate;overflow:hidden;">
 
     <!-- ══════════════════════════════════════
          HEADER
     ══════════════════════════════════════ -->
     <tr>
-      <td class="header-td no-radius" bgcolor="#fffaf5"
-        style="background-color:#fffaf5;padding:36px 36px 32px;border-radius:12px 12px 0 0;">
+      <td class="header-td no-radius" bgcolor="#ffffff"
+        style="background-color:#ffffff;padding:40px 36px 32px;border-radius:24px 24px 0 0;">
 
         {% set total_jobs = (sections.get('jobs_target', []) | length) + (sections.get('jobs_open', []) | length) %}
         {% set ns = namespace(total=0) %}
@@ -77,13 +77,13 @@
           <tr>
             <!-- Left: branding + title -->
             <td valign="top" style="padding-right:16px;">
-              <p style="margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#818cf8;">
+              <p style="margin:0 0 10px;font-family:Georgia, 'Times New Roman', serif;
+                font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#000000;">
                 DAILY INTEL
               </p>
               <h1 class="title" style="margin:0 0 10px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:26px;font-weight:800;color:#0f172a;letter-spacing:-0.5px;line-height:1.25;">
+                font-family:Georgia,'Times New Roman',serif;
+                font-size:32px;font-weight:700;color:#0f172a;letter-spacing:-0.5px;line-height:1.2;">
                 Morning Digest
               </h1>
               <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
@@ -95,12 +95,12 @@
             <td class="stat-wrap" valign="top" align="right" style="white-space:nowrap;">
               <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-left:auto;">
                 <tr>
-                  <td style="background-color:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.28);
-                    border-radius:10px;padding:12px 20px;text-align:center;">
+                  <td style="background-color:#1a1a1a;border:1px solid #000000;
+                    border-radius:8px;padding:16px 20px;text-align:center;">
                     <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:30px;font-weight:800;color:#a5b4fc;line-height:1;">{{ ns.total }}</p>
-                    <p style="margin:3px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#6366f1;">
+                      font-size:30px;font-weight:800;color:#ffffff;line-height:1;">{{ ns.total }}</p>
+                    <p style="margin:4px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#a3a3a3;">
                       TODAY
                     </p>
                   </td>
@@ -150,7 +150,7 @@
           style="margin-bottom:18px;">
           <tr>
             <td valign="middle">
-              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+              <p style="margin:0;font-family:Georgia, 'Times New Roman', serif;
                 font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.6px;color:#94a3b8;">
                 {{ section_labels.get(sec_key, sec_key) }}
               </p>
@@ -167,80 +167,6 @@
           </tr>
         </table>
 
-        {% if is_jobs %}
-        {# ── Job Cards ── #}
-        {% for item in sec_items %}
-          {# Parse summary: "Company | Job Title" #}
-          {% if item.summary %}
-            {% set parts = item.summary.split(' | ') %}
-            {% if parts | length > 1 %}
-              {% set company   = parts[0] | trim %}
-              {% set job_title = parts[1] | trim %}
-            {% else %}
-              {% set company   = '' %}
-              {% set job_title = item.summary | trim %}
-            {% endif %}
-          {% else %}
-            {% set company   = '' %}
-            {% set job_title = 'Job Posting' %}
-          {% endif %}
-          {% set item_url  = url_map.get(item.raw_item_id) if item.raw_item_id else none %}
-          {% set score_pct = (item.rank_score * 100) | int %}
-
-        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '12px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
-          
-          <!-- company -->
-          {% if company %}
-          <div style="margin-bottom:6px;">
-            <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-              font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6366f1;">
-              {{ company }}
-            </p>
-          </div>
-          {% endif %}
-
-          <!-- job title -->
-          <p style="margin:0 0 14px;
-            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-            font-size:16px;font-weight:700;color:#0f172a;line-height:1.35;letter-spacing:-0.2px;">
-            {{ job_title }}
-          </p>
-
-          <!-- CTA button -->
-          {% if item_url %}
-          <!--[if mso]>
-          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
-            href="{{ item_url }}"
-            style="height:38px;v-text-anchor:middle;width:148px;"
-            arcsize="16%" stroke="f" fillcolor="#3730a3">
-            <w:anchorlock/>
-            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;">
-              APPLY NOW &#8594;
-            </center>
-          </v:roundrect>
-          <![endif]-->
-          <!--[if !mso]><!-->
-          <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
-            <a href="{{ item_url }}" target="_blank" rel="noopener noreferrer"
-              style="display:inline-block;padding:10px 24px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:13px;font-weight:700;
-                text-decoration:none;
-                letter-spacing:0.6px;line-height:1.2;white-space:nowrap;">
-              <span style="color:#ffffff !important;">APPLY&nbsp;NOW&nbsp;&#8594;</span>
-            </a>
-          </div>
-          <!--<![endif]-->
-          {% else %}
-          <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-            font-size:11px;color:#cbd5e1;font-style:italic;">
-            Link unavailable
-          </p>
-          {% endif %}
-        </div>
-        {% endfor %}
-
-        {% else %}
         {# ── Content Items (news, telegram, whatsapp, linkedin) ── #}
         {% for item in sec_items %}
           {% set _raw_sum = item.summary or '' %}
@@ -262,16 +188,16 @@
             {% set tags_str = '' %}
           {% endif %}
 
-        <div style="margin-bottom:{{ '0' if loop.last else '16px' }}; padding-bottom:{{ '0' if loop.last else '16px' }};">
-          <p style="margin:0 0 4px;
-            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-            font-size:14px;font-weight:600;color:#0f172a;line-height:1.45;">
-            {{ headline }}{% if body_text %}&hellip;{% endif %}
+        <div style="margin-bottom:{{ '0' if loop.last else '16px' }}; padding-bottom:{{ '0' if loop.last else '16px' }}; border-bottom:{{ 'none' if loop.last else '1px solid #e2e8f0' }};">
+          <p style="margin:0 0 8px;
+            font-family:Georgia,'Times New Roman',serif;
+            font-size:22px;font-weight:700;color:#0f172a;line-height:1.35;">
+            {{ headline }}
           </p>
 
           {% if body_text %}
           <p style="margin:0 0 6px;
-            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+            font-family:'Open Sans', 'Segoe UI', 'Apple SD Gothic Neo', 'Lucida Grande', 'Lucida Sans Unicode', sans-serif;
             font-size:13px;color:#4b5563;line-height:1.6;">
             {{ body_text }}
           </p>
@@ -287,7 +213,6 @@
 
         </div>
         {% endfor %}
-        {% endif %}
 
       </td>
     </tr>
@@ -316,9 +241,9 @@
     <tr>
       <td class="footer-td no-radius" bgcolor="#4b4b4b"
         style="background-color:#4b4b4b;border-top:none;padding:20px 36px;
-          text-align:center;border-radius:0 0 12px 12px;">
-        <p style="margin:0 0 4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-          font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#f3f4f6;">
+          text-align:center;border-radius:0 0 24px 24px;">
+        <p style="margin:0 0 4px;font-family:Georgia, 'Times New Roman', serif;
+          font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#000000;">
           DAILY INTEL
         </p>
         <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;

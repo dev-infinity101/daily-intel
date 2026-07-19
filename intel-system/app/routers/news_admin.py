@@ -93,7 +93,7 @@ async def n8n_webhook(payload: N8nWebhookPayload) -> dict:
     if not text:
         return {"status": "ignored", "reason": "empty_content"}
 
-    ok, hits = passes_filter(text)
+    ok, hits = passes_filter(text, payload.link)
     if not ok:
         log.info("news.n8n_keyword_miss", url=payload.link)
         return {"status": "filtered", "reason": "no_keyword_match"}

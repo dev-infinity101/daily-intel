@@ -24,16 +24,19 @@ async def fetch_url_map(db: AsyncSession, items: list[ProcessedItem]) -> dict[in
     return {row.id: row.url for row in result if row.url}
 
 
-async def fetch_today_items(db: AsyncSession) -> list[ProcessedItem]:
+async def fetch_today_items(db: AsyncSession, section: str | None = None) -> list[ProcessedItem]:
     cutoff = (datetime.now(IST) - timedelta(hours=24)).astimezone(timezone.utc)
+    
+    conditions = [
+        ProcessedItem.is_relevant == True,  # noqa: E712
+        ProcessedItem.processed_at >= cutoff,
+    ]
+    if section:
+        conditions.append(ProcessedItem.section == section)
+        
     result = await db.execute(
         select(ProcessedItem)
-        .where(
-            and_(
-                ProcessedItem.is_relevant == True,  # noqa: E712
-                ProcessedItem.processed_at >= cutoff,
-            )
-        )
+        .where(and_(*conditions))
         .order_by(ProcessedItem.section, ProcessedItem.rank_score.desc())
     )
     return list(result.scalars().all())
@@ -43,11 +46,12 @@ def assemble_html(
     items: list[ProcessedItem],
     subject: str,
     url_map: dict[int, str] | None = None,
+    template_name: str = "daily.html.j2"
 ) -> str:
     sections: dict[str, list[ProcessedItem]] = {}
     for item in items:
         sections.setdefault(item.section, []).append(item)
-    template = _jinja.get_template("daily.html.j2")
+    template = _jinja.get_template(template_name)
     return template.render(
         sections=sections,
         subject=subject,
@@ -74,3 +78,23 @@ async def record_digest(
     await db.commit()
     await db.refresh(digest)
     return digest
+
+
+async def run_news_digest(db: AsyncSession) -> None:
+    from app.services.email.sender import send_email
+    import structlog
+    log = structlog.get_logger()
+    
+    # fetch ALL items in the processed_items table (news, linkedin, custom) since Jobs are in a separate table.
+    items = await fetch_today_items(db)
+    if not items:
+        log.info("digest.news.skipped_empty")
+        return
+        
+    url_map = await fetch_url_map(db, items)
+    subject = "Your Daily Intel: News"
+    html = assemble_html(items, subject, url_map=url_map, template_name="news.html.j2")
+    provider_id = await send_email(subject, html)
+    await record_digest(db, items, html, subject, provider_id)
+    log.info("digest.news.sent", item_count=len(items))
+

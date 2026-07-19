@@ -31,14 +31,14 @@ CRITICAL REJECTION RULES (Score 0.0 if any match):
 
 Return ONLY a JSON object with this exact structure:
 {
-    "headline": "Exact original headline, or slightly shortened (max 15 words).",
+    "headline": "Short, punchy standalone headline (max 10 words).",
     "summary": "A mid-length, highly informative summary (3-4 sentences) retaining all main details, facts, numbers, and context.",
     "relevance_score": 0.85, 
     "category": "Industry News",
     "tags": ["India", "Tata Motors", "Battery Swapping", "Policy"]
 }
 
-- `headline`: Use the original title of the news article as it appears in the text. You may shorten it slightly if it is excessively long, but keep the original wording as much as possible.
+- `headline`: A short, punchy standalone headline. Do NOT end with an ellipsis or write it in a way that reads as a sentence continuing into the description.
 - `summary`: A rich, mid-length news description. Do NOT just say "This is an article about X". State the actual facts, numbers, companies, and key details.
 - `relevance_score`: Float 0.0 to 1.0. (1.0 = highly relevant EV news in India, 0.0 = job post, non-India, or spam).
 - `category`: Must be one of: "Industry News", "Market Trends", "Technology & Innovation", "Policy & Regulation", "Other".
@@ -125,91 +125,115 @@ async def process_unprocessed_news() -> dict[str, Any]:
         base_url="https://openrouter.ai/api/v1",
     )
 
-    db = SessionLocal()
     try:
-        # Find raw items from news sources that don't have a ProcessedItem
-        stmt = (
-            select(RawItem, Source)
-            .join(Source, RawItem.source_id == Source.id)
-            .outerjoin(ProcessedItem, ProcessedItem.raw_item_id == RawItem.id)
-            .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site"]))
-            .where(ProcessedItem.id.is_(None))
-            .limit(50) # Process in batches to avoid overwhelming LLM/time limits
-        )
-        result = await db.execute(stmt)
-        rows = result.all()
-
-        if not rows:
-            log.info("news_pipeline.no_unprocessed_items")
-            return {"status": "ok", "processed_count": 0}
-
-        log.info("news_pipeline.processing_batch", count=len(rows))
+        total_processed = 0
+        total_failed = 0
         
-        processed_count = 0
-        failed_count = 0
-
-        for raw_item, source in rows:
-            text_to_process = raw_item.text or ""
-            if not text_to_process:
-                # If there's no text, we just mark it as not relevant so it doesn't get picked up again
-                pi = ProcessedItem(
-                    raw_item_id=raw_item.id,
-                    is_relevant=False,
-                    relevance_score=0.0,
-                    summary="No content",
-                    section="news",
-                    rank_score=0.0,
-                )
-                db.add(pi)
-                processed_count += 1
-                continue
-
-            llm_result = await _process_text_with_llm(text_to_process, client)
+        while True:
+            log.info("news_pipeline.finding_news")
             
-            if not llm_result:
-                failed_count += 1
-                continue
-
-            headline = llm_result.get("headline", "").strip()
-            summary_text = llm_result.get("summary", "").strip()
-            tags = llm_result.get("tags", [])
-            
-            # Combine into a single summary block for vector embeddings
-            summary = f"{headline} | {summary_text}" if headline else summary_text
-            if tags and isinstance(tags, list):
-                tags_str = ", ".join([str(t) for t in tags])
-                summary += f" [Tags: {tags_str}]"
-            
-            # Catch LLM returning string instead of float for relevance_score
+            db = SessionLocal()
             try:
-                relevance = float(llm_result.get("relevance_score", 0.0))
-            except ValueError:
-                relevance = 0.0
-            
-            # Map section based on source type
-            section = "linkedin" if source.type == "linkedin_news" else "news"
+                # Find raw items from news sources that don't have a ProcessedItem
+                stmt = (
+                    select(RawItem, Source)
+                    .join(Source, RawItem.source_id == Source.id)
+                    .outerjoin(ProcessedItem, ProcessedItem.raw_item_id == RawItem.id)
+                    .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site"]))
+                    .where(ProcessedItem.id.is_(None))
+                    .limit(50) # Process in batches to avoid overwhelming LLM/time limits
+                )
+                result = await db.execute(stmt)
+                rows = result.all()
 
-            pi = ProcessedItem(
-                raw_item_id=raw_item.id,
-                is_relevant=(relevance >= 0.5), # threshold for relevance
-                relevance_score=relevance,
-                summary=summary,
-                section=section,
-                rank_score=relevance,
-            )
-            db.add(pi)
-            processed_count += 1
-            
-            # Avoid rate limits
-            await asyncio.sleep(1)
+                if not rows:
+                    log.info("news_pipeline.no_unprocessed_items_left")
+                    break
 
-        await db.commit()
-        log.info("news_pipeline.batch_complete", processed=processed_count, failed=failed_count)
-        return {"status": "ok", "processed_count": processed_count, "failed_count": failed_count}
+                from sqlalchemy import func
+                count_stmt = (
+                    select(func.count(RawItem.id))
+                    .join(Source, RawItem.source_id == Source.id)
+                    .outerjoin(ProcessedItem, ProcessedItem.raw_item_id == RawItem.id)
+                    .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site"]))
+                    .where(ProcessedItem.id.is_(None))
+                )
+                left_to_process = (await db.execute(count_stmt)).scalar() or 0
+
+                log.info("news_pipeline.processing_batch", batch_size=len(rows), left_to_process=left_to_process)
+                
+                processed_count = 0
+                failed_count = 0
+
+                for raw_item, source in rows:
+                    text_to_process = raw_item.text or ""
+                    if not text_to_process:
+                        pi = ProcessedItem(
+                            raw_item_id=raw_item.id,
+                            is_relevant=False,
+                            relevance_score=0.0,
+                            summary="No content",
+                            section="news",
+                            rank_score=0.0,
+                        )
+                        db.add(pi)
+                        processed_count += 1
+                        continue
+
+                    log.info("news_pipeline.sends_to_ai", external_id=raw_item.external_id)
+                    llm_result = await _process_text_with_llm(text_to_process, client)
+                    
+                    if not llm_result:
+                        failed_count += 1
+                        continue
+
+                    log.info("news_pipeline.scoring_and_summarizing")
+                    headline = llm_result.get("headline", "").strip()
+                    summary_text = llm_result.get("summary", "").strip()
+                    tags = llm_result.get("tags", [])
+                    
+                    # Combine into a single summary block for vector embeddings
+                    summary = f"{headline} | {summary_text}" if headline else summary_text
+                    if tags and isinstance(tags, list):
+                        tags_str = ", ".join([str(t) for t in tags])
+                        summary += f" [Tags: {tags_str}]"
+                    
+                    # Catch LLM returning string instead of float for relevance_score
+                    try:
+                        relevance = float(llm_result.get("relevance_score", 0.0))
+                    except ValueError:
+                        relevance = 0.0
+                    
+                    # Map section based on source type
+                    section = "linkedin" if source.type == "linkedin_news" else "news"
+                    passed_filter = relevance >= 0.4  # Lowered threshold to allow more news through
+
+                    log.info("news_pipeline.final_filter", relevance_score=relevance, passed=passed_filter)
+
+                    pi = ProcessedItem(
+                        raw_item_id=raw_item.id,
+                        is_relevant=passed_filter,
+                        relevance_score=relevance,
+                        summary=summary,
+                        section=section,
+                        rank_score=relevance,
+                    )
+                    db.add(pi)
+                    processed_count += 1
+                    
+                    # Avoid rate limits
+                    await asyncio.sleep(1)
+
+                await db.commit()
+                total_processed += processed_count
+                total_failed += failed_count
+                log.info("news_pipeline.batch_complete", processed=processed_count, failed=failed_count)
+            
+            finally:
+                await db.close()
+
+        return {"status": "ok", "processed_count": total_processed, "failed_count": total_failed}
 
     except Exception as exc:
         log.error("news_pipeline.error", error=str(exc))
-        await db.rollback()
         return {"status": "error", "error": str(exc)}
-    finally:
-        await db.close()

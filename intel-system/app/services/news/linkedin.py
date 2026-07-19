@@ -28,7 +28,7 @@ log = structlog.get_logger()
 _APIFY_BASE = "https://api.apify.com/v2"
 
 # Each hashtag is run as its own search query by the actor.
-SEARCH_QUERIES: list[str] = ["#EV", "#charging", "#Mobility"]
+SEARCH_QUERIES: list[str] = ["#EV", "#charging", "#Mobility", "#ElectricVehicles", "#Emobility", "#EVIndia"]
 MAX_POSTS = 60
 
 
@@ -58,8 +58,8 @@ async def _trigger_actor() -> tuple[str, str]:
                 log.info("linkedin.actor_started", run_id=run_id, queries=SEARCH_QUERIES)
                 return run_id, token
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code in (402, 429) and attempt < len(tokens_to_try) - 1:
-                    log.warning("linkedin.primary_quota_hit_retrying_secondary", status=exc.response.status_code)
+                if exc.response.status_code in (401, 402, 403, 429) and attempt < len(tokens_to_try) - 1:
+                    log.warning("linkedin.primary_token_failed_retrying_secondary", status=exc.response.status_code)
                     continue
                 raise
         raise RuntimeError("No valid apify tokens available")
@@ -133,8 +133,20 @@ async def poll_linkedin() -> dict[str, Any]:
 
     log.info("linkedin.poll_start", queries=SEARCH_QUERIES)
 
-    run_id, used_token = await _trigger_actor()
-    raw_posts = await _wait_for_dataset(run_id, used_token)
+    try:
+        run_id, used_token = await _trigger_actor()
+        raw_posts = await _wait_for_dataset(run_id, used_token)
+    except httpx.HTTPStatusError as e:
+        log.error("linkedin.apify_http_error", status_code=e.response.status_code, error=str(e))
+        return {
+            "status": "error", 
+            "reason": f"apify_http_error_{e.response.status_code}",
+            "message": "Apify API rejected the request. You may be out of free credits, or the actor is no longer available to your account."
+        }
+    except Exception as e:
+        log.error("linkedin.apify_unknown_error", error=str(e))
+        return {"status": "error", "reason": "apify_unknown_error", "message": str(e)}
+
     log.info("linkedin.fetched", count=len(raw_posts))
 
     items = [n for p in raw_posts if (n := _normalize_post(p)) is not None]

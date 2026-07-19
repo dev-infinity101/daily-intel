@@ -13,10 +13,61 @@ from app.schemas.ingest import IngestItem
 
 # (keyword, requires_word_boundary)
 KEYWORDS: list[tuple[str, bool]] = [
+    # General Broad Keywords
     ("EV", True),
+    ("EVs", True),
     ("Emobility", False),
     ("E-mobility", False),
     ("Charging", False),
+    ("Electric Vehicle", False),
+    ("Electric Scooter", False),
+    ("Electric Car", False),
+    ("Electric Bus", False),
+    ("Battery Swapping", False),
+    ("Li-ion", False),
+    ("Lithium-ion", False),
+    ("Giga Factory", False),
+    
+    # Location
+    ("India", True),
+    ("Indian", True),
+    
+    # Major Indian EV Companies / Startups
+    ("Tata Motors", False),
+    ("Tata Passenger Electric", False),
+    ("Mahindra", False),
+    ("Ola Electric", False),
+    ("Ather Energy", False),
+    ("TVS Motor", False),
+    ("TVS iQube", False),
+    ("Bajaj Auto", False),
+    ("Bajaj Chetak", False),
+    ("Hero Electric", False),
+    ("Vida", True),
+    ("Greaves", False),
+    ("Ampere", False),
+    ("Kinetic Green", False),
+    ("Revolt Motors", False),
+    ("Oben Electric", False),
+    ("Simple Energy", False),
+    ("Tork Motors", False),
+    ("Ultraviolette", False),
+    ("Yulu", False),
+    ("MG Motor", False),
+    ("BYD India", False),
+    ("Log9", False),
+    ("Exponent Energy", False),
+    ("Gogoro", False),
+    ("Sun Mobility", False),
+    ("Bounce Infinity", False),
+    ("Eicher Motors", False),
+    ("Ashok Leyland", False),
+    ("Olectra", False),
+    ("JBM Auto", False),
+    
+    # News Sources to always pass
+    ("Economic Times", False),
+    ("economictimes", False),
 ]
 
 LOCATION_KEYWORDS: list[str] = [

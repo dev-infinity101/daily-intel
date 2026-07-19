@@ -12,253 +12,268 @@
   </o:OfficeDocumentSettings>
 </xml>
 <![endif]-->
-<title>EV Business Jobs Digest</title>
+<title>{{ subject }}</title>
 <style type="text/css">
-  /* Reset only — no class-based styling, Gmail strips this block */
-  body, #bodyTable { margin:0; padding:0; width:100%; }
-  img { border:0; display:block; }
+  /* === Resets === */
+  body, #bodyTable { margin:0; padding:0; width:100%; min-width:100%; }
+  img { border:0; display:block; max-width:100%; height:auto; }
   table { border-collapse:collapse; mso-table-lspace:0pt; mso-table-rspace:0pt; }
+  /* Do NOT set color:inherit on `a` globally — it overrides button text color in Apple Mail */
+  a { text-decoration:none; }
 
-  /* Apply button: lock ALL pseudo-states.
-     CRITICAL: Gmail overrides <a> color with `a{color:#1155CC!important}`.
-     The <span> inside is immune — Gmail's selector only targets <a>, not descendants. */
+  /* === Apply button — all pseudo-states locked to white text === */
   a.apply-btn,
   a.apply-btn:link,
   a.apply-btn:visited,
   a.apply-btn:hover,
-  a.apply-btn:active { text-decoration:none !important; }
-  a.apply-btn:hover td { background-color:#312e81 !important; }
+  a.apply-btn:active,
+  a.apply-btn:focus {
+    color:#ffffff !important;
+    text-decoration:none !important;
+  }
+  a.apply-btn:hover { background-color:#312e81 !important; border-color:#312e81 !important; }
 
+  /* === Mobile responsive === */
   @media only screen and (max-width:620px) {
     body, #bodyTable { background-color: #ffffff !important; }
-    .main-container { border: 2px solid #f97316 !important; border-radius: 0 !important; }
-    .wrap        { width:100% !important; }
+    .main-container { border: 1px solid #f97316 !important; border-radius: 24px !important; box-shadow: none !important; }
+    .full-width  { width:100% !important; min-width:100% !important; }
+    .no-radius   { border-radius:0 !important; }
     .header-td   { padding:24px 20px 28px !important; }
-    .section-td  { padding:0 12px 16px !important; }
+    .section-td  { padding:20px 16px !important; }
     .card-td     { padding:14px 16px !important; }
-    .stat-badge  { display:none !important; }
+    .footer-td   { padding:16px 20px !important; }
     h1.title     { font-size:22px !important; }
+    .stat-wrap   { display:none !important; }
   }
 </style>
 </head>
 
-<body style="margin:0;padding:0;background-color:#f97316;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+<body style="margin:0;padding:0;background-color:#fff0e6;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
 
+<!-- Outer table -->
 <table id="bodyTable" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
-  style="background-color:#f97316;width:100%;">
-<tr><td align="center" style="padding:32px 16px;">
+  style="background-color:#fff0e6;width:100%;">
+<tr><td align="center" style="padding:40px 16px;">
 
-  <!-- ══ CONTAINER ══ -->
+  <!-- ╔══════════════════════════════════════╗
+       ║         EMAIL CONTAINER             ║
+       ╚══════════════════════════════════════╝ -->
   <table class="wrap main-container" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation"
-    style="margin: 0 auto; max-width:600px;width:600px;background-color:#fffaf5;border-radius:12px;">
+    style="margin: 0 auto; max-width:600px;width:600px;background-color:#ffffff;border-radius:24px;border:1px solid #f97316;box-shadow: 0 8px 24px rgba(249, 115, 22, 0.15);border-collapse:separate;overflow:hidden;">
 
-    <!-- ══ HEADER ══ -->
+    <!-- ══════════════════════════════════════
+         HEADER
+    ══════════════════════════════════════ -->
     <tr>
-      <td class="header-td" bgcolor="#fffaf5"
-        style="background-color:#fffaf5;padding:36px 36px 32px;border-radius:12px 12px 0 0;">
+      <td class="header-td" bgcolor="#ffffff"
+        style="background-color:#ffffff;padding:40px 36px 32px;border-radius:24px 24px 0 0;">
+
+        {% set total_jobs = (sections.get('jobs_target', []) | length) + (sections.get('jobs_open', []) | length) %}
+        {% set ns = namespace(total=0) %}
+        {% for k, v in sections.items() %}{% set ns.total = ns.total + (v | length) %}{% endfor %}
+
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
           <tr>
+            <!-- Left: branding + title -->
             <td valign="top" style="padding-right:16px;">
-              <p style="margin:0 0 10px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#059669;">
-                EV / E-MOBILITY ECOSYSTEM{% if total_batches is defined and total_batches > 1 %} &nbsp;&middot;&nbsp; BATCH {{ batch_num }}/{{ total_batches }}{% endif %}
+              <p style="margin:0 0 10px;font-family:Georgia, 'Times New Roman', serif;
+                font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#000000;">
+                DAILY INTEL
               </p>
               <h1 class="title" style="margin:0 0 10px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:26px;font-weight:800;color:#0f172a;letter-spacing:-0.5px;line-height:1.25;">
+                font-family:Georgia,'Times New Roman',serif;
+                font-size:32px;font-weight:700;color:#0f172a;letter-spacing:-0.5px;line-height:1.2;">
                 Business Jobs Digest
               </h1>
-              <p style="margin:0;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
                 font-size:13px;color:#64748b;line-height:1.4;">
                 {{ generated_at }}
               </p>
             </td>
-            <!-- Count badge -->
-            <td class="stat-badge" valign="top" align="right" style="white-space:nowrap;">
+            <!-- Right: stat badge -->
+            <td class="stat-wrap" valign="top" align="right" style="white-space:nowrap;">
               <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-left:auto;">
                 <tr>
-                  <td style="background-color:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);
-                    border-radius:10px;padding:12px 20px;text-align:center;">
-                    <p style="margin:0;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:30px;font-weight:800;color:#34d399;line-height:1;">{{ count }}</p>
-                    <p style="margin:3px 0 0;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#059669;">
-                      ROLE{{ 'S' if count != 1 else '' }}
+                  <td style="background-color:#1a1a1a;border:1px solid #000000;
+                    border-radius:8px;padding:16px 20px;text-align:center;">
+                    <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:30px;font-weight:800;color:#ffffff;line-height:1;">{{ ns.total }}</p>
+                    <p style="margin:4px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#a3a3a3;">
+                      TODAY
                     </p>
                   </td>
                 </tr>
+                {% if total_jobs > 0 %}
+                <tr>
+                  <td style="padding-top:8px;text-align:center;">
+                    <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:11px;color:#475569;font-weight:500;">
+                      {{ total_jobs }}&nbsp;job{{ 's' if total_jobs != 1 else '' }}
+                    </p>
+                  </td>
+                </tr>
+                {% endif %}
               </table>
             </td>
           </tr>
         </table>
+
       </td>
     </tr>
 
-    <!-- ══ FILTER NOTE ══ -->
+    <!-- ══════════════════════════════════════
+         SECTIONS
+    ══════════════════════════════════════ -->
+    {% set section_labels = {
+      'jobs_target': 'Target Companies Hiring',
+      'jobs_open':   'Open Opportunities',
+      'news':        'Industry News',
+      'telegram':    'Telegram Highlights',
+      'whatsapp':    'WhatsApp Highlights',
+      'linkedin':    'LinkedIn Updates'
+    } %}
+    {% set display_order = ['jobs_target', 'jobs_open', 'news', 'telegram', 'whatsapp', 'linkedin'] %}
+
+    {% for sec_key in display_order %}
+    {% if sec_key in sections %}
+    {% set sec_items = sections[sec_key] %}
+    {% set is_jobs = sec_key.startswith('jobs') %}
+
     <tr>
-      <td style="padding:0;border-left:3px solid #22c55e;background-color:#f0fdf4;">
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+      <td class="section-td"
+        style="padding:28px 32px {{ '20px' if is_jobs else '24px' }};border-top:none;">
+
+        <!-- Section header row -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
+          style="margin-bottom:18px;">
           <tr>
-            <td style="padding:12px 20px;
-              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-              font-size:12px;color:#166534;line-height:1.5;">
-              <strong style="color:#15803d;">Filtered for:</strong>
-              EV &amp; E-Mobility domain
+            <td valign="middle">
+              <p style="margin:0;font-family:Georgia, 'Times New Roman', serif;
+                font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.6px;color:#94a3b8;">
+                {{ section_labels.get(sec_key, sec_key) }}
+              </p>
+            </td>
+            <td valign="middle" align="right">
+              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                font-size:11px;font-weight:600;color:#6366f1;">
+                {{ sec_items | length }}&nbsp;{{ 'role' if is_jobs else 'item' }}{{ 's' if sec_items | length != 1 else '' }}
+              </p>
             </td>
           </tr>
+          <tr>
+            <td colspan="2" style="padding-top:10px;border-bottom:none;font-size:0;line-height:0;">&nbsp;</td>
+          </tr>
         </table>
-      </td>
-    </tr>
 
-    <!-- ══ JOB LIST ══ -->
-    {% if jobs %}
-    <tr>
-      <td class="section-td" style="padding:20px 24px 24px;">
+        {# ── Job Cards ── #}
+        {% for item in sec_items %}
+          {# Parse summary: "Company | Job Title" #}
+          {% if item.summary %}
+            {% set parts = item.summary.split(' | ') %}
+            {% if parts | length > 1 %}
+              {% set company   = parts[0] | trim %}
+              {% set job_title = parts[1] | trim %}
+            {% else %}
+              {% set company   = '' %}
+              {% set job_title = item.summary | trim %}
+            {% endif %}
+          {% else %}
+            {% set company   = '' %}
+            {% set job_title = 'Job Posting' %}
+          {% endif %}
+          {% set item_url  = url_map.get(item.raw_item_id) if item.raw_item_id else none %}
+          {% set score_pct = (item.rank_score * 100) | int %}
 
-        {% for job in jobs %}
-        <!-- Job card -->
-        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '14px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
-              <!-- Company + score row -->
-              <div style="margin-bottom:5px;">
-                <p style="margin:0;
-                  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                  font-size:10px;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.8px;color:#6366f1;">
-                  {{ job.company }}
-                </p>
-                {% set score_pct = (job.rank_score * 100) | int %}
-                {% if score_pct > 0 %}
-                <p style="margin:0;
-                  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                  font-size:10px;font-weight:600;
-                  color:{{ '#059669' if score_pct >= 80 else ('#d97706' if score_pct >= 60 else '#94a3b8') }};">
-                  &#9679;&nbsp;{{ score_pct }}%&nbsp;match
-                </p>
-                {% endif %}
-              </div>
+        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '12px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
+          
+          <!-- company -->
+          {% if company %}
+          <div style="margin-bottom:6px;">
+            <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+              font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6366f1;">
+              {{ company }}
+            </p>
+          </div>
+          {% endif %}
 
-              <!-- Job title -->
+          <!-- job title -->
               <p style="margin:0 0 8px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:16px;font-weight:700;color:#0f172a;line-height:1.35;letter-spacing:-0.2px;">
-                {{ job.job_title }}
-                {% if job.matched_keywords %}
-                <span style="display:inline-block; font-size:11px; font-weight:600; color:#15803d; background-color:#dcfce7; padding:2px 6px; border-radius:4px; margin-left:6px; vertical-align:middle; border:1px solid #bbf7d0; letter-spacing:0.5px;">[ {{ job.matched_keywords | title }} ]</span>
-                {% endif %}
+                font-family:Georgia,'Times New Roman',serif;
+                font-size:20px;font-weight:700;color:#0f172a;line-height:1.35;">
+                {{ job_title }}
               </p>
 
-              <!-- Description snippet -->
-              {% if job.ai_summary %}
-              <p style="margin:0 0 14px;
+          <!-- CTA button -->
+          {% if item_url %}
+          <!--[if mso]>
+          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+            href="{{ item_url }}"
+            style="height:38px;v-text-anchor:middle;width:148px;"
+            arcsize="16%" stroke="f" fillcolor="#3730a3">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;">
+              APPLY NOW &#8594;
+            </center>
+          </v:roundrect>
+          <![endif]-->
+          <!--[if !mso]><!-->
+          <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
+            <a href="{{ item_url }}" target="_blank" rel="noopener noreferrer"
+              style="display:inline-block;padding:10px 24px;
                 font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:13px;color:#4b5563;line-height:1.6;font-style:italic;">
-                {{ job.ai_summary }}
-              </p>
-              {% elif job.description %}
-              <p style="margin:0 0 14px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:13px;color:#4b5563;line-height:1.6;">
-                {{ job.description[:200] }}{% if job.description | length > 200 %}&hellip;{% endif %}
-              </p>
-              {% endif %}
-
-              <!-- Tags + Apply button row -->
-              <div style="margin-top:4px;">
-                <div style="margin-bottom:12px;">
-                    {% if job.location %}
-                    <span style="display:inline-block;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:11px;font-weight:500;
-                      padding:3px 9px;border-radius:99px;
-                      background-color:#f1f5f9;color:#475569;
-                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
-                      &#128205;&nbsp;{{ job.location }}
-                    </span>
-                    {% endif %}
-                    {% if job.remote %}
-                    <span style="display:inline-block;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:11px;font-weight:500;
-                      padding:3px 9px;border-radius:99px;
-                      background-color:#f0fdf4;color:#15803d;
-                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
-                      Remote
-                    </span>
-                    {% endif %}
-                    {% if job.experience_level and job.experience_level != 'unknown' %}
-                    <span style="display:inline-block;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:11px;font-weight:500;
-                      padding:3px 9px;border-radius:99px;
-                      background-color:#fff7ed;color:#c2410c;
-                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
-                      {{ job.experience_level | title }}
-                    </span>
-                    {% endif %}
-                    {% for skill in (job.extracted_skills or [])[:3] %}
-                    <span style="display:inline-block;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:11px;font-weight:500;
-                      padding:3px 9px;border-radius:99px;
-                      background-color:#faf5ff;color:#7e22ce;
-                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
-                      {{ skill }}
-                    </span>
-                    {% endfor %}
-                </div>
-
-                {% if job.job_url %}
-                <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
-                  <a href="{{ job.job_url }}" target="_blank" rel="noopener noreferrer"
-                    style="display:inline-block;padding:7px 18px;
-                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                      font-size:12px;font-weight:700;
-                      text-decoration:none;
-                      letter-spacing:0.5px;line-height:1.2;white-space:nowrap;">
-                    <span style="color:#ffffff !important;">Apply&nbsp;&#8594;</span>
-                  </a>
-                </div>
-                {% endif %}
-              </div>
+                font-size:13px;font-weight:700;
+                text-decoration:none;
+                letter-spacing:0.6px;line-height:1.2;white-space:nowrap;">
+              <span style="color:#ffffff !important;">APPLY&nbsp;NOW&nbsp;&#8594;</span>
+            </a>
+          </div>
+          <!--<![endif]-->
+          {% else %}
+          <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+            font-size:11px;color:#cbd5e1;font-style:italic;">
+            Link unavailable
+          </p>
+          {% endif %}
         </div>
         {% endfor %}
 
       </td>
     </tr>
 
-    {% else %}
-    <!-- ══ EMPTY STATE ══ -->
+    {% endif %}
+    {% endfor %}
+
+    <!-- ══════════════════════════════════════
+         EMPTY STATE
+    ══════════════════════════════════════ -->
+    {% if not sections %}
     <tr>
       <td style="padding:56px 36px;text-align:center;border-top:none;">
-        <p style="margin:0 0 8px;font-size:36px;line-height:1;">&#128679;</p>
-        <p style="margin:0;
-          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        <p style="margin:0 0 12px;font-size:36px;line-height:1;">&#128679;</p>
+        <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           font-size:14px;color:#94a3b8;">
-          No new EV business roles in the last 24 hours. Check back tomorrow.
+          Nothing to show today. Check back tomorrow.
         </p>
       </td>
     </tr>
     {% endif %}
 
-    <!-- ══ FOOTER ══ -->
+    <!-- ══════════════════════════════════════
+         FOOTER
+    ══════════════════════════════════════ -->
     <tr>
-      <td bgcolor="#4b4b4b"
+      <td class="footer-td no-radius" bgcolor="#4b4b4b"
         style="background-color:#4b4b4b;border-top:none;padding:20px 36px;
-          text-align:center;border-radius:0 0 12px 12px;">
-        <p style="margin:0 0 4px;
-          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-          font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#f3f4f6;">
+          text-align:center;border-radius:0 0 24px 24px;">
+        <p style="margin:0 0 4px;font-family:Georgia, 'Times New Roman', serif;
+          font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#000000;">
           DAILY INTEL
         </p>
-        <p style="margin:0;
-          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           font-size:11px;color:#d1d5db;line-height:1.5;">
-          EV Business Jobs &nbsp;&middot;&nbsp; {{ generated_at }}
-          &nbsp;&middot;&nbsp; Only BD, Sales &amp; Marketing roles in EV/e-mobility
+          Generated {{ generated_at }}&nbsp;&middot;&nbsp;One digest, every morning.
         </p>
       </td>
     </tr>
