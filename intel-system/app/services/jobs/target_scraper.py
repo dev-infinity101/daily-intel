@@ -1,4 +1,4 @@
-"""Direct HTTP career page scraper + OpenRouter/Tencent-Hunyuan extraction.
+"""Direct HTTP career page scraper + OpenRouter/Nemotron-3-Ultra extraction.
 
 Used for companies whose ATS type is 'custom', 'workday', or unknown —
 where no standard API adapter exists. Fetches the page, strips HTML,

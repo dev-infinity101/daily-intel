@@ -34,6 +34,8 @@ def verify_webhook_signature(body: bytes, signature: str) -> bool:
 # [DIAG-PATCH-APPLIED]
 def _parse_llm_json_safe(text: str) -> list:
     """Parse LLM JSON with fallbacks for common model quirks."""
+    if "</think>" in text:
+        text = text.split("</think>")[-1]
     import re as _re
     text = text.strip()
     if not text or text in ("null", "{}", "[]"):
@@ -61,9 +63,9 @@ def _parse_llm_json_safe(text: str) -> list:
 
 
 async def extract_jobs_from_diff(diff_html: str, source_url: str) -> list[JobIn]:
-    """Send the page content to OpenRouter/Tencent-Hunyuan and extract structured job listings."""
-    if not settings.openrouter_api_key:
-        log.warning("changedetection.openrouter_key_missing")
+    """Send the page content to OpenRouter/Nemotron-3-Ultra and extract structured job listings."""
+    if not settings.tensormux_api_key:
+        log.warning("changedetection.tensormux_key_missing")
         return []
 
     import asyncio
@@ -71,8 +73,8 @@ async def extract_jobs_from_diff(diff_html: str, source_url: str) -> list[JobIn]
     from openai import AsyncOpenAI, APIStatusError
 
     client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.tensormux_api_key,
+        base_url="https://api.tensormux.com/v1",
         default_headers={
             "HTTP-Referer": "https://daily-intel.app",
             "X-Title": "Daily Intel",
@@ -106,12 +108,12 @@ Content:
     for attempt in range(1, 4):
         try:
             response = await client.chat.completions.create(
-                model=settings.openrouter_model,
+                model=settings.tensormux_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
             )
             if not response.choices:
-                log.warning("changedetection.empty_choices", url=source_url, attempt=attempt, model=settings.openrouter_model)
+                log.warning("changedetection.empty_choices", url=source_url, attempt=attempt, model=settings.tensormux_model)
                 if attempt < 3:
                     await asyncio.sleep(5 * attempt)
                     continue
@@ -119,7 +121,7 @@ Content:
             content = response.choices[0].message.content
             # [DIAG-PATCH-APPLIED]
             if not content or not content.strip():
-                log.warning("changedetection.null_content", url=source_url, attempt=attempt, model=settings.openrouter_model)
+                log.warning("changedetection.null_content", url=source_url, attempt=attempt, model=settings.tensormux_model)
                 if attempt < 3:
                     wait = 3 * attempt
                     await asyncio.sleep(wait)
@@ -146,7 +148,7 @@ Content:
             if exc.status_code in (429, 503) and attempt < 3:
                 wait = 5 * attempt
                 log.warning(
-                    "changedetection.openrouter_unavailable_retrying",
+                    "changedetection.tensormux_unavailable_retrying",
                     url=source_url,
                     attempt=attempt,
                     wait_seconds=wait,
@@ -164,4 +166,4 @@ Content:
         error=str(last_exc),
         exc_info=last_exc,
     )
-    raise ExtractionError(f"OpenRouter extraction failed for {source_url}: {last_exc}") from last_exc
+    raise ExtractionError(f"TensorMux extraction failed for {source_url}: {last_exc}") from last_exc

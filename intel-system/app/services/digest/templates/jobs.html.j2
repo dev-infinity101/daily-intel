@@ -69,10 +69,6 @@
       <td class="header-td" bgcolor="#ffffff"
         style="background-color:#ffffff;padding:40px 36px 32px;border-radius:24px 24px 0 0;">
 
-        {% set total_jobs = (sections.get('jobs_target', []) | length) + (sections.get('jobs_open', []) | length) %}
-        {% set ns = namespace(total=0) %}
-        {% for k, v in sections.items() %}{% set ns.total = ns.total + (v | length) %}{% endfor %}
-
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
           <tr>
             <!-- Left: branding + title -->
@@ -98,19 +94,19 @@
                   <td style="background-color:#1a1a1a;border:1px solid #000000;
                     border-radius:8px;padding:16px 20px;text-align:center;">
                     <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:30px;font-weight:800;color:#ffffff;line-height:1;">{{ ns.total }}</p>
+                      font-size:30px;font-weight:800;color:#ffffff;line-height:1;">{{ count }}</p>
                     <p style="margin:4px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                       font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#a3a3a3;">
                       TODAY
                     </p>
                   </td>
                 </tr>
-                {% if total_jobs > 0 %}
+                {% if count > 0 %}
                 <tr>
                   <td style="padding-top:8px;text-align:center;">
                     <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                       font-size:11px;color:#475569;font-weight:500;">
-                      {{ total_jobs }}&nbsp;job{{ 's' if total_jobs != 1 else '' }}
+                      {{ count }}&nbsp;role{{ 's' if count != 1 else '' }}
                     </p>
                   </td>
                 </tr>
@@ -124,26 +120,11 @@
     </tr>
 
     <!-- ══════════════════════════════════════
-         SECTIONS
+         JOB LIST
     ══════════════════════════════════════ -->
-    {% set section_labels = {
-      'jobs_target': 'Target Companies Hiring',
-      'jobs_open':   'Open Opportunities',
-      'news':        'Industry News',
-      'telegram':    'Telegram Highlights',
-      'whatsapp':    'WhatsApp Highlights',
-      'linkedin':    'LinkedIn Updates'
-    } %}
-    {% set display_order = ['jobs_target', 'jobs_open', 'news', 'telegram', 'whatsapp', 'linkedin'] %}
-
-    {% for sec_key in display_order %}
-    {% if sec_key in sections %}
-    {% set sec_items = sections[sec_key] %}
-    {% set is_jobs = sec_key.startswith('jobs') %}
-
+    {% if jobs %}
     <tr>
-      <td class="section-td"
-        style="padding:28px 32px {{ '20px' if is_jobs else '24px' }};border-top:none;">
+      <td class="section-td" style="padding:28px 32px 24px;border-top:none;">
 
         <!-- Section header row -->
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
@@ -152,13 +133,13 @@
             <td valign="middle">
               <p style="margin:0;font-family:Georgia, 'Times New Roman', serif;
                 font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.6px;color:#94a3b8;">
-                {{ section_labels.get(sec_key, sec_key) }}
+                Latest Opportunities
               </p>
             </td>
             <td valign="middle" align="right">
               <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                 font-size:11px;font-weight:600;color:#6366f1;">
-                {{ sec_items | length }}&nbsp;{{ 'role' if is_jobs else 'item' }}{{ 's' if sec_items | length != 1 else '' }}
+                {{ count }}&nbsp;role{{ 's' if count != 1 else '' }}
               </p>
             </td>
           </tr>
@@ -167,94 +148,126 @@
           </tr>
         </table>
 
-        {# ── Job Cards ── #}
-        {% for item in sec_items %}
-          {# Parse summary: "Company | Job Title" #}
-          {% if item.summary %}
-            {% set parts = item.summary.split(' | ') %}
-            {% if parts | length > 1 %}
-              {% set company   = parts[0] | trim %}
-              {% set job_title = parts[1] | trim %}
-            {% else %}
-              {% set company   = '' %}
-              {% set job_title = item.summary | trim %}
-            {% endif %}
-          {% else %}
-            {% set company   = '' %}
-            {% set job_title = 'Job Posting' %}
-          {% endif %}
-          {% set item_url  = url_map.get(item.raw_item_id) if item.raw_item_id else none %}
-          {% set score_pct = (item.rank_score * 100) | int %}
+        {% for job in jobs %}
+        <!-- Job card -->
+        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '14px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
+              <!-- Company + score row -->
+              <div style="margin-bottom:5px;">
+                <p style="margin:0;display:inline-block;
+                  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                  font-size:10px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:0.8px;color:#6366f1;">
+                  {{ job.company | default('Unknown Company', true) }}
+                </p>
+                {% set score_pct = (job.rank_score * 100) | int %}
+                {% if score_pct > 0 %}
+                <p style="margin:0;display:inline-block;float:right;
+                  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                  font-size:10px;font-weight:600;
+                  color:{{ '#059669' if score_pct >= 80 else ('#d97706' if score_pct >= 60 else '#94a3b8') }};">
+                  &#9679;&nbsp;{{ score_pct }}%&nbsp;match
+                </p>
+                {% endif %}
+              </div>
 
-        <div class="card-td" style="margin-bottom:{{ '0' if loop.last else '12px' }}; padding:18px 20px; background-color:transparent; border-radius:10px;">
-          
-          <!-- company -->
-          {% if company %}
-          <div style="margin-bottom:6px;">
-            <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-              font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6366f1;">
-              {{ company }}
-            </p>
-          </div>
-          {% endif %}
-
-          <!-- job title -->
+              <!-- Job title -->
               <p style="margin:0 0 8px;
                 font-family:Georgia,'Times New Roman',serif;
-                font-size:20px;font-weight:700;color:#0f172a;line-height:1.35;">
-                {{ job_title }}
+                font-size:20px;font-weight:700;color:#0f172a;line-height:1.35;letter-spacing:-0.2px;">
+                {{ job.job_title }}
               </p>
 
-          <!-- CTA button -->
-          {% if item_url %}
-          <!--[if mso]>
-          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
-            href="{{ item_url }}"
-            style="height:38px;v-text-anchor:middle;width:148px;"
-            arcsize="16%" stroke="f" fillcolor="#3730a3">
-            <w:anchorlock/>
-            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;">
-              APPLY NOW &#8594;
-            </center>
-          </v:roundrect>
-          <![endif]-->
-          <!--[if !mso]><!-->
-          <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
-            <a href="{{ item_url }}" target="_blank" rel="noopener noreferrer"
-              style="display:inline-block;padding:10px 24px;
-                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                font-size:13px;font-weight:700;
-                text-decoration:none;
-                letter-spacing:0.6px;line-height:1.2;white-space:nowrap;">
-              <span style="color:#ffffff !important;">APPLY&nbsp;NOW&nbsp;&#8594;</span>
-            </a>
-          </div>
-          <!--<![endif]-->
-          {% else %}
-          <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-            font-size:11px;color:#cbd5e1;font-style:italic;">
-            Link unavailable
-          </p>
-          {% endif %}
+              <!-- Description snippet -->
+              {% if job.ai_summary %}
+              <p style="margin:0 0 14px;
+                font-family:'Open Sans', 'Segoe UI', 'Apple SD Gothic Neo', 'Lucida Grande', 'Lucida Sans Unicode', sans-serif;
+                font-size:13px;color:#4b5563;line-height:1.6;font-style:italic;">
+                {{ job.ai_summary }}
+              </p>
+              {% elif job.description %}
+              <p style="margin:0 0 14px;
+                font-family:'Open Sans', 'Segoe UI', 'Apple SD Gothic Neo', 'Lucida Grande', 'Lucida Sans Unicode', sans-serif;
+                font-size:13px;color:#4b5563;line-height:1.6;">
+                {{ job.description[:200] }}{% if job.description | length > 200 %}&hellip;{% endif %}
+              </p>
+              {% endif %}
+
+              <!-- Tags + Apply button row -->
+              <div style="margin-top:4px;">
+                <div style="margin-bottom:12px;">
+                    {% if job.location %}
+                    <span style="display:inline-block;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:11px;font-weight:500;
+                      padding:3px 9px;border-radius:99px;
+                      background-color:#fff7ed;color:#c2410c;
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
+                      {{ job.location }}
+                    </span>
+                    {% endif %}
+                    {% if job.remote %}
+                    <span style="display:inline-block;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:11px;font-weight:500;
+                      padding:3px 9px;border-radius:99px;
+                      background-color:#f0fdf4;color:#15803d;
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
+                      Remote
+                    </span>
+                    {% endif %}
+                    {% if job.experience_level and job.experience_level != 'unknown' %}
+                    <span style="display:inline-block;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:11px;font-weight:500;
+                      padding:3px 9px;border-radius:99px;
+                      background-color:#fff7ed;color:#c2410c;
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
+                      {{ job.experience_level | title }}
+                    </span>
+                    {% endif %}
+                    {% if job.matched_keywords %}
+                    {% for tag in job.matched_keywords.split(',') %}
+                    <span style="display:inline-block;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      font-size:11px;font-weight:500;
+                      padding:3px 9px;border-radius:99px;
+                      background-color:#faf5ff;color:#7e22ce;
+                      margin-bottom:4px;margin-right:4px;white-space:nowrap;">
+                      {{ tag | trim }}
+                    </span>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+
+                {% if job.job_url %}
+                <div style="display:inline-block; background-color:#3730a3; border-radius:4px; border:2px solid #312e81;">
+                  <a href="{{ job.job_url }}" target="_blank" rel="noopener noreferrer"
+                    style="display:inline-block;padding:7px 18px;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+                      font-size:12px;font-weight:700;
+                      text-decoration:none;
+                      letter-spacing:0.5px;line-height:1.2;white-space:nowrap;">
+                    <span style="color:#ffffff !important;">Apply&nbsp;&#8594;</span>
+                  </a>
+                </div>
+                {% endif %}
+              </div>
         </div>
         {% endfor %}
 
       </td>
     </tr>
 
-    {% endif %}
-    {% endfor %}
-
+    {% else %}
     <!-- ══════════════════════════════════════
          EMPTY STATE
     ══════════════════════════════════════ -->
-    {% if not sections %}
     <tr>
       <td style="padding:56px 36px;text-align:center;border-top:none;">
         <p style="margin:0 0 12px;font-size:36px;line-height:1;">&#128679;</p>
         <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           font-size:14px;color:#94a3b8;">
-          Nothing to show today. Check back tomorrow.
+          No new EV business roles today. Check back tomorrow.
         </p>
       </td>
     </tr>

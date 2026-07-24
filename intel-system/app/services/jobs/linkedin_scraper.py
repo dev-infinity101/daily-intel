@@ -11,7 +11,7 @@ Hiring posts: any retrieved card whose description or title contains a hiring
   source_type="linkedin_hiring_post".
 
 Post-retrieval pipeline:
-  - _rank_jobs_with_llm() — single batched OpenRouter/Tencent-Hunyuan call (up to 20 jobs) for:
+  - _rank_jobs_with_llm() — single batched OpenRouter/Nemotron-3-Ultra call (up to 20 jobs) for:
       relevance_score, domain, ev_technologies, matched_tags, is_hiring_post
   - Result exposed through JobRank / search_linkedin_ev_jobs_ranked().
 
@@ -370,7 +370,7 @@ async def _rank_jobs_with_llm(jobs: list[JobIn]) -> list[dict]:
     if not jobs:
         return []
 
-    if not settings.openrouter_api_key:
+    if not settings.tensormux_api_key:
         return [_heuristic_rank(j) for j in jobs]
 
     job_list_text = "\n".join(
@@ -404,8 +404,8 @@ Jobs:
     from openai import AsyncOpenAI
 
     or_client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.tensormux_api_key,
+        base_url="https://api.tensormux.com/v1",
         default_headers={
             "HTTP-Referer": "https://daily-intel.app",
             "X-Title": "Daily Intel",
@@ -416,11 +416,18 @@ Jobs:
     for attempt in range(1, 4):
         try:
             response = await or_client.chat.completions.create(
-                model=settings.openrouter_model,
+                model=settings.tensormux_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
             )
-            text = response.choices[0].message.content.strip()
+            if not getattr(response, "choices", None):
+                raise ValueError("Empty choices in response")
+            text = response.choices[0].message.content
+            if not text:
+                raise ValueError("Empty content in response")
+            if "</think>" in text:
+                text = text.split("</think>")[-1]
+            text = text.strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             ranked = json.loads(text)
@@ -490,7 +497,7 @@ async def search_linkedin_ev_jobs_ranked(
         search_terms: LinkedIn search keywords (default: EV_SEARCH_TERMS)
         location: LinkedIn location filter
         max_pages: pagination depth per search term
-        llm_rank: whether to call OpenRouter/Tencent-Hunyuan for semantic scoring
+        llm_rank: whether to call OpenRouter/Nemotron-3-Ultra for semantic scoring
         keywords_filter: if set, only keep jobs matching at least one keyword
         company_filter: if set, only keep jobs from this company (substring match)
     """

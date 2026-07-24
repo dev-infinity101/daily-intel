@@ -9,3 +9,9 @@ dist/
 *.egg-info/
 htmlcov/
 .coverage
+
+
+raw_response.txt
+scratch_test.py
+test_tensormux.py
+test_tensormux_parser.py

@@ -306,6 +306,8 @@ def _find_eightfold_chunks(text: str, chunk_size: int, max_chunks: int) -> list[
 
 
 def _parse_ef_llm_json(text: str) -> list[dict]:
+    if "</think>" in text:
+        text = text.split("</think>")[-1]
     text = text.strip()
     if not text or text in ("null", "{}", "[]"):
         return []
@@ -351,7 +353,7 @@ async def extract_jobs_eightfold(
 
     from app.config import settings
 
-    if not content.strip() or not settings.openrouter_api_key:
+    if not content.strip() or not settings.tensormux_api_key:
         log.warning("extraction_utils.eightfold_skip", company=company_slug)
         return []
 
@@ -360,8 +362,8 @@ async def extract_jobs_eightfold(
     company_display = company_name or company_slug
 
     client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.tensormux_api_key,
+        base_url="https://api.tensormux.com/v1",
         default_headers={
             "HTTP-Referer": "https://daily-intel.app",
             "X-Title": "Daily Intel",
@@ -393,7 +395,7 @@ async def extract_jobs_eightfold(
         for attempt in range(1, 3):
             try:
                 resp = await client.chat.completions.create(
-                    model=settings.openrouter_model,
+                    model=settings.tensormux_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0,
                     timeout=60,

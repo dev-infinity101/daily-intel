@@ -97,3 +97,8 @@ intel-system/test-OpenRouter.py
 intel-system/tests/test_ev_filter_live.py
 intel-system/tests/test_job_filtering_rules.py
 
+#extra 
+raw_response.txt
+scratch_test.py
+test_tensormux.py
+test_tensormux_parser.py

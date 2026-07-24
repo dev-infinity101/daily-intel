@@ -125,15 +125,15 @@ def build_jobs_html(
 
 async def _generate_summaries(jobs: list[Job]) -> dict[int, str]:
     from app.config import settings
-    if not settings.openrouter_api_key or not jobs:
+    if not settings.tensormux_api_key or not jobs:
         return {}
     
     import json
     from openai import AsyncOpenAI
     
     client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.tensormux_api_key,
+        base_url="https://api.tensormux.com/v1",
         default_headers={"HTTP-Referer": "https://daily-intel.app", "X-Title": "Daily Intel"},
     )
     
@@ -152,12 +152,20 @@ Example: {{"123": "Lead the development of high-power EV charging infrastructure
 """
     try:
         response = await client.chat.completions.create(
-            model=settings.openrouter_model,
+            model=settings.tensormux_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=3000,
         )
-        content = response.choices[0].message.content.strip()
+        if not getattr(response, "choices", None):
+            log.warning("jobs_digest.empty_choices")
+            return {}
+        content = response.choices[0].message.content
+        if not content:
+            return {}
+        if "</think>" in content:
+            content = content.split("</think>")[-1]
+        content = content.strip()
         if content.startswith("```"):
             content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         if content.startswith("json"):

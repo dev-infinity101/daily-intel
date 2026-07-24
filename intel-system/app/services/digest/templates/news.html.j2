@@ -69,9 +69,12 @@
       <td class="header-td no-radius" bgcolor="#ffffff"
         style="background-color:#ffffff;padding:40px 36px 32px;border-radius:24px 24px 0 0;">
 
-        {% set total_jobs = (sections.get('jobs_target', []) | length) + (sections.get('jobs_open', []) | length) %}
         {% set ns = namespace(total=0) %}
-        {% for k, v in sections.items() %}{% set ns.total = ns.total + (v | length) %}{% endfor %}
+        {% for k, v in sections.items() %}
+          {% if not k.startswith('jobs') %}
+            {% set ns.total = ns.total + (v | length) %}
+          {% endif %}
+        {% endfor %}
 
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
           <tr>
@@ -105,16 +108,7 @@
                     </p>
                   </td>
                 </tr>
-                {% if total_jobs > 0 %}
-                <tr>
-                  <td style="padding-top:8px;text-align:center;">
-                    <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                      font-size:11px;color:#475569;font-weight:500;">
-                      {{ total_jobs }}&nbsp;job{{ 's' if total_jobs != 1 else '' }}
-                    </p>
-                  </td>
-                </tr>
-                {% endif %}
+
               </table>
             </td>
           </tr>
@@ -127,14 +121,12 @@
          SECTIONS
     ══════════════════════════════════════ -->
     {% set section_labels = {
-      'jobs_target': 'Target Companies Hiring',
-      'jobs_open':   'Open Opportunities',
       'news':        'Industry News',
       'telegram':    'Telegram Highlights',
       'whatsapp':    'WhatsApp Highlights',
       'linkedin':    'LinkedIn Updates'
     } %}
-    {% set display_order = ['jobs_target', 'jobs_open', 'news', 'telegram', 'whatsapp', 'linkedin'] %}
+    {% set display_order = ['news', 'telegram', 'whatsapp', 'linkedin'] %}
 
     {% for sec_key in display_order %}
     {% if sec_key in sections %}

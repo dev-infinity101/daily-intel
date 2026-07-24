@@ -83,7 +83,8 @@ _REMOTE_ONLY = re.compile(
 _TARGET_SENIORITY = re.compile(
     r"\b("
     r"chief|cbo|coo|cro|cgo|president|founder|co.?founder|vice\s+president|vp|svp|evp|avp|"
-    r"director|head|general\s+manager|gm|manager|lead"
+    r"director|head|general\s+manager|gm|deputy\s+general\s+manager|deputy\s+manager|dgm|agm|"
+    r"assistant\s+general\s+manager|deputy|manager|lead"
     r")\b",
     re.I,
 )
@@ -91,7 +92,8 @@ _TARGET_SENIORITY = re.compile(
 _HIGH_SENIORITY = re.compile(
     r"\b("
     r"chief|cbo|coo|cro|cgo|president|founder|co.?founder|vice\s+president|vp|svp|evp|avp|"
-    r"director|head|senior\s+manager|sr\.?\s+manager|general\s+manager|gm"
+    r"director|head|senior\s+manager|sr\.?\s+manager|general\s+manager|gm|"
+    r"deputy\s+general\s+manager|deputy\s+manager|dgm|agm|assistant\s+general\s+manager"
     r")\b",
     re.I,
 )
@@ -147,7 +149,7 @@ _BUSINESS_ROLES = re.compile(
     r"operation|strategy|strategist|coordinator|specialist|analyst|associate|"
     r"associates|position|positions|role|roles|supervisor|superintendent|officer|"
     r"executive|production|manufacturing|quality|procurement|supply\s+chain|"
-    r"logistics|in[\s-]?charge|incharge"
+    r"logistics|in[\s-]?charge|incharge|deputy|dgm|agm|gm"
     r")\b",
     re.I,
 )

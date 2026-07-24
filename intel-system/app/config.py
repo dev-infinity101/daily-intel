@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://intel:intel_dev@localhost:5432/intel"
-    openrouter_api_key: str = ""
-    openrouter_model: str = "tencent/hy3:free"
+    tensormux_api_key: str = ""
+    tensormux_model: str = "qwen3-6-35b-a3b"
     resend_api_key: str = ""
     email_from: str = "intel@example.com"
     email_to: str = ""  # comma-separated list, parsed at send time

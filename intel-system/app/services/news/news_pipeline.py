@@ -47,6 +47,8 @@ Return ONLY a JSON object with this exact structure:
 
 def _parse_dict_safe(text: str) -> dict[str, Any] | None:
     """Safely parse LLM dict JSON, stripping markdown code blocks if present."""
+    if "</think>" in text:
+        text = text.split("</think>")[-1]
     text = text.strip()
     if text.startswith("```json"):
         text = text[7:]
@@ -74,13 +76,16 @@ def _parse_dict_safe(text: str) -> dict[str, Any] | None:
 async def _process_chunk_with_llm(text_chunk: str, client: AsyncOpenAI) -> dict[str, Any] | None:
     try:
         response = await client.chat.completions.create(
-            model=settings.openrouter_model,
+            model=settings.tensormux_model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": f"Please summarize and score this text:\n\n{text_chunk[:CHUNK_SIZE_CHARS]}"}
             ],
             temperature=0.3,
         )
+        if not getattr(response, "choices", None):
+            log.warning("news_pipeline.empty_choices")
+            return None
         content = response.choices[0].message.content
         if not content:
             return None
@@ -116,13 +121,13 @@ async def _process_text_with_llm(text: str, client: AsyncOpenAI) -> dict[str, An
 
 async def process_unprocessed_news() -> dict[str, Any]:
     """Finds unprocessed news raw_items, calls LLM to summarize, and saves to processed_items."""
-    if not settings.openrouter_api_key:
-        log.warning("news_pipeline.openrouter_key_missing")
+    if not settings.tensormux_api_key:
+        log.warning("news_pipeline.tensormux_key_missing")
         return {"status": "error", "reason": "openrouter_key_missing"}
 
     client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.tensormux_api_key,
+        base_url="https://api.tensormux.com/v1",
     )
 
     try:
@@ -132,11 +137,10 @@ async def process_unprocessed_news() -> dict[str, Any]:
         while True:
             log.info("news_pipeline.finding_news")
             
-            db = SessionLocal()
-            try:
+            async with SessionLocal() as db:
                 # Find raw items from news sources that don't have a ProcessedItem
                 stmt = (
-                    select(RawItem, Source)
+                    select(RawItem.id, RawItem.text, RawItem.external_id, Source.type)
                     .join(Source, RawItem.source_id == Source.id)
                     .outerjoin(ProcessedItem, ProcessedItem.raw_item_id == RawItem.id)
                     .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site"]))
@@ -160,16 +164,18 @@ async def process_unprocessed_news() -> dict[str, Any]:
                 )
                 left_to_process = (await db.execute(count_stmt)).scalar() or 0
 
-                log.info("news_pipeline.processing_batch", batch_size=len(rows), left_to_process=left_to_process)
-                
-                processed_count = 0
-                failed_count = 0
+            log.info("news_pipeline.processing_batch", batch_size=len(rows), left_to_process=left_to_process)
+            
+            processed_count = 0
+            failed_count = 0
 
-                for raw_item, source in rows:
-                    text_to_process = raw_item.text or ""
+            for raw_item_id, text_to_process, external_id, source_type in rows:
+                text_to_process = text_to_process or ""
+                
+                async with SessionLocal() as db:
                     if not text_to_process:
                         pi = ProcessedItem(
-                            raw_item_id=raw_item.id,
+                            raw_item_id=raw_item_id,
                             is_relevant=False,
                             relevance_score=0.0,
                             summary="No content",
@@ -177,10 +183,11 @@ async def process_unprocessed_news() -> dict[str, Any]:
                             rank_score=0.0,
                         )
                         db.add(pi)
+                        await db.commit()
                         processed_count += 1
                         continue
 
-                    log.info("news_pipeline.sends_to_ai", external_id=raw_item.external_id)
+                    log.info("news_pipeline.sends_to_ai", external_id=external_id)
                     llm_result = await _process_text_with_llm(text_to_process, client)
                     
                     if not llm_result:
@@ -205,13 +212,13 @@ async def process_unprocessed_news() -> dict[str, Any]:
                         relevance = 0.0
                     
                     # Map section based on source type
-                    section = "linkedin" if source.type == "linkedin_news" else "news"
+                    section = "linkedin" if source_type == "linkedin_news" else "news"
                     passed_filter = relevance >= 0.4  # Lowered threshold to allow more news through
 
                     log.info("news_pipeline.final_filter", relevance_score=relevance, passed=passed_filter)
 
                     pi = ProcessedItem(
-                        raw_item_id=raw_item.id,
+                        raw_item_id=raw_item_id,
                         is_relevant=passed_filter,
                         relevance_score=relevance,
                         summary=summary,
@@ -219,18 +226,15 @@ async def process_unprocessed_news() -> dict[str, Any]:
                         rank_score=relevance,
                     )
                     db.add(pi)
+                    await db.commit()
                     processed_count += 1
-                    
-                    # Avoid rate limits
-                    await asyncio.sleep(1)
+                
+                # Avoid rate limits
+                await asyncio.sleep(1)
 
-                await db.commit()
-                total_processed += processed_count
-                total_failed += failed_count
-                log.info("news_pipeline.batch_complete", processed=processed_count, failed=failed_count)
-            
-            finally:
-                await db.close()
+            total_processed += processed_count
+            total_failed += failed_count
+            log.info("news_pipeline.batch_complete", processed=processed_count, failed=failed_count)
 
         return {"status": "ok", "processed_count": total_processed, "failed_count": total_failed}
 
