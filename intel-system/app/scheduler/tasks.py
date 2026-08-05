@@ -20,7 +20,7 @@ async def run_daily_digest(db=None) -> None:  # type: ignore[assignment]
         db = SessionLocal()
     try:
         await run_news_digest(db)
-        await send_jobs_digest(db)
+        await send_jobs_digest()
         log.info("digest.all_sent")
     except Exception:
         log.exception("digest.failed")
@@ -31,15 +31,27 @@ async def run_daily_digest(db=None) -> None:  # type: ignore[assignment]
 
 @scheduler.scheduled_job(
     "cron",
-    hour=6,
+    day_of_week="wed",
+    hour=18,
     minute=30,
     timezone="Asia/Kolkata",
-    id="daily_digest",
+    id="news_digest",
     max_instances=1,
     misfire_grace_time=300,
 )
-async def daily_digest_job() -> None:
-    await run_daily_digest()
+async def news_digest_job() -> None:
+    """Send the weekly EV news digest in 20-article batches every Wednesday at 18:30 IST."""
+    from app.database import SessionLocal
+    from app.services.digest.assembler import run_news_digest
+
+    db = SessionLocal()
+    try:
+        result = await run_news_digest(db, hours=168)
+        log.info("news_digest.scheduled_result", **result)
+    except Exception:
+        log.exception("news_digest.failed")
+    finally:
+        await db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +210,8 @@ async def jobs_digest_job() -> None:
     db = SessionLocal()
     try:
         # Pass hours=168 to ensure we capture all jobs found over the last week
-        result = await send_jobs_digest(db, hours=168)
+        result = await send_jobs_digest(hours=168)
+        log.info("tasks.jobs_digest_finished", result=result)
         if result["status"] == "error":
             log.error("jobs_digest.failed", error=result.get("error"))
         else:
@@ -235,7 +248,7 @@ async def jobs_digest_job() -> None:
 
 @scheduler.scheduled_job(
     "cron",
-    hour="3,9,15,21",
+    hour=3,
     minute=0,
     timezone="Asia/Kolkata",
     id="twitter_poll",
@@ -243,7 +256,7 @@ async def jobs_digest_job() -> None:
     misfire_grace_time=300,
 )
 async def twitter_poll_job() -> None:
-    """Run Apify Twitter handle scrape every 6 hours and ingest EV-relevant tweets."""
+    """Run Apify Twitter handle scrape once daily at 03:00 AM IST and ingest EV-relevant tweets."""
     from app.services.news.twitter import poll_twitter
 
     try:
@@ -255,7 +268,7 @@ async def twitter_poll_job() -> None:
 
 @scheduler.scheduled_job(
     "cron",
-    hour="4,10,16,22",
+    hour=4,
     minute=0,
     timezone="Asia/Kolkata",
     id="linkedin_news_poll",
@@ -263,7 +276,7 @@ async def twitter_poll_job() -> None:
     misfire_grace_time=300,
 )
 async def linkedin_news_poll_job() -> None:
-    """Run Apify LinkedIn hashtag search every 6 hours and ingest EV-relevant posts.
+    """Run Apify LinkedIn hashtag search once daily at 04:00 AM IST and ingest EV-relevant posts.
 
     Distinct from linkedin_poll_job (Module 5 — job scraping) above; this one
     feeds the news pipeline (source_type=linkedin_news), not the jobs table.
@@ -287,7 +300,7 @@ async def linkedin_news_poll_job() -> None:
     misfire_grace_time=300,
 )
 async def process_news_morning_job() -> None:
-    """Process raw news items into LLM summaries before the morning digest."""
+    """Process raw news items into LLM summaries once daily at 06:00 AM IST."""
     from app.services.news.news_pipeline import process_unprocessed_news
 
     try:
@@ -296,22 +309,3 @@ async def process_news_morning_job() -> None:
     except Exception:
         log.exception("process_news.failed")
 
-
-@scheduler.scheduled_job(
-    "cron",
-    hour=18,
-    minute=0,
-    timezone="Asia/Kolkata",
-    id="process_news_evening",
-    max_instances=1,
-    misfire_grace_time=300,
-)
-async def process_news_evening_job() -> None:
-    """Process raw news items into LLM summaries before the evening jobs digest."""
-    from app.services.news.news_pipeline import process_unprocessed_news
-
-    try:
-        result = await process_unprocessed_news()
-        log.info("process_news.done", **result)
-    except Exception:
-        log.exception("process_news.failed")

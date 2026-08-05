@@ -1,5 +1,5 @@
 """Remotive public API — free, no key required."""
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 import structlog

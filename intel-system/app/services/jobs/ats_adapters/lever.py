@@ -1,5 +1,5 @@
 """Lever public postings API — https://api.lever.co/v0/postings/{slug}"""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import structlog
@@ -22,7 +22,7 @@ def _parse(job: dict, slug: str) -> JobIn:
         job_url=job.get("hostedUrl") or job.get("applyUrl") or "",
         external_job_id=str(job.get("id", "")),
         source_type="ats_lever",
-        posted_at=datetime.fromtimestamp(job["createdAt"] / 1000, tz=timezone.utc) if job.get("createdAt") else None,
+        posted_at=datetime.fromtimestamp(job["createdAt"] / 1000, tz=UTC) if job.get("createdAt") else None,
     )
 
 

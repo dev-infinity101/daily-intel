@@ -1,5 +1,5 @@
 """Workable public jobs widget API — https://{slug}.workable.com/api/v3/jobs"""
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 import structlog

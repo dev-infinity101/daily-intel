@@ -109,8 +109,12 @@ def _render_page_sync(connect_url: str, career_url: str) -> str:
         try:
             ctx = browser.new_context()
             page = ctx.new_page()
-            page.goto(career_url, wait_until="networkidle", timeout=90_000)
-            _time.sleep(3)  # extra wait for JS hydration
+            try:
+                page.goto(career_url, wait_until="domcontentloaded", timeout=60_000)
+            except Exception as e:
+                log.warning("browserbase.page_goto_warning", url=career_url, error=str(e))
+            
+            _time.sleep(5)  # extra wait for JS hydration
             return page.content()
         finally:
             browser.close()

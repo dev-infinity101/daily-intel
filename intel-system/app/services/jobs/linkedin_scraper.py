@@ -27,25 +27,25 @@ import asyncio
 import json
 import random
 import re
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import NamedTuple
+from datetime import datetime
 
 import httpx
 import structlog
-
 from app.config import settings
+
 from app.schemas.job import JobIn
 from app.services.jobs.classifier import (
     EV_SEARCH_TERMS,
     classify_job_domain,
     extract_ev_keywords,
+    infer_experience_level,
     is_ev_domain_relevant,
     is_hiring_post,
     match_target_tags,
     score_ev_relevance,
 )
+from app.utils.llm_client import call_llm_with_rate_limit
 
 log = structlog.get_logger()
 
@@ -415,7 +415,8 @@ Jobs:
 
     for attempt in range(1, 4):
         try:
-            response = await or_client.chat.completions.create(
+            response = await call_llm_with_rate_limit(
+                client=or_client,
                 model=settings.tensormux_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
@@ -425,8 +426,6 @@ Jobs:
             text = response.choices[0].message.content
             if not text:
                 raise ValueError("Empty content in response")
-            if "</think>" in text:
-                text = text.split("</think>")[-1]
             text = text.strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()

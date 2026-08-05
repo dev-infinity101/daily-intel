@@ -21,8 +21,8 @@ import json as _json
 import re
 
 import structlog
-
 from app.schemas.job import JobIn
+from app.utils.llm_client import call_llm_with_rate_limit
 
 log = structlog.get_logger()
 
@@ -306,8 +306,6 @@ def _find_eightfold_chunks(text: str, chunk_size: int, max_chunks: int) -> list[
 
 
 def _parse_ef_llm_json(text: str) -> list[dict]:
-    if "</think>" in text:
-        text = text.split("</think>")[-1]
     text = text.strip()
     if not text or text in ("null", "{}", "[]"):
         return []
@@ -394,11 +392,13 @@ async def extract_jobs_eightfold(
         raw = ""
         for attempt in range(1, 3):
             try:
-                resp = await client.chat.completions.create(
+                resp = await call_llm_with_rate_limit(
+                    client=client,
                     model=settings.tensormux_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0,
-                    timeout=60,
+                    max_tokens=4096,
+                    timeout=120.0,
                 )
                 if resp.choices:
                     raw = (resp.choices[0].message.content or "").strip()

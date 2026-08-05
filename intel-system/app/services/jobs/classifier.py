@@ -12,7 +12,7 @@ _REMOTE = re.compile(r"\b(remote|wfh|work.?from.?home|anywhere|distributed)\b", 
 
 EV_TAXONOMY = {
     "core": [
-        "EV", "E-Mobility", "Electric Vehicle", "Electrification",
+        "EV", "E-Mobility", "Emobility", "Electric Vehicle",
         "Electric Vehicles", "E Mobility"
     ],
     "charging": [
@@ -367,9 +367,6 @@ def evaluate_job_filter(
     if is_target:
         domain_ok = True
         domain_status = "target_company_assumed_ev"
-    elif source_type == "adzuna":
-        domain_ok = True
-        domain_status = "skipped_for_adzuna"
 
     if not domain_ok:
         result = JobFilterResult(

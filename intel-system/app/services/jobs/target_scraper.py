@@ -8,7 +8,7 @@ Pagination: fetch_career_page_paginated() follows rel=next and common
   href patterns (page=N, start=N, offset=N) until max_pages or no next link.
 """
 import re
-from urllib.parse import urljoin, urlparse, urlunparse, parse_qs, urlencode, quote
+from urllib.parse import urljoin
 
 import httpx
 import structlog
@@ -151,11 +151,11 @@ async def fetch_career_page(url: str, company_slug: str, debug: bool = False) ->
     # Detect SPA
     is_spa, spa_indicators = _is_likely_spa(html)
     if is_spa and debug:
-        print(f"\n  [!!] WARNING: Page appears to be a Single Page App (SPA)")
+        print("\n  [!!] WARNING: Page appears to be a Single Page App (SPA)")
         for indicator in spa_indicators:
             print(f"       → {indicator}")
-        print(f"      Plain HTTP fetch won't load dynamic job content.")
-        print(f"      Recommend using Apify actor instead.\n")
+        print("      Plain HTTP fetch won't load dynamic job content.")
+        print("      Recommend using Apify actor instead.\n")
 
     # [DIAG-PATCH-APPLIED]
     # Try to extract embedded JSON job data from SPA skeleton FIRST

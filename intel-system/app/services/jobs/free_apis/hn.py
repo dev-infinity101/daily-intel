@@ -1,5 +1,5 @@
 """HN 'Who is Hiring' — monthly thread via Algolia API."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import structlog
@@ -29,7 +29,7 @@ def _parse_comment(comment: dict) -> JobIn | None:
         title = parts[1].strip()[:200] if len(parts) > 1 else title
 
     url = comment.get("url") or ""
-    posted_at = datetime.fromtimestamp(comment.get("created_at_i", 0), tz=timezone.utc)
+    posted_at = datetime.fromtimestamp(comment.get("created_at_i", 0), tz=UTC)
 
     return JobIn(
         company=company,

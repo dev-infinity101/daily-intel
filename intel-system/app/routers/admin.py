@@ -10,19 +10,24 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # ── News digest ────────────────────────────────────────────────────────────
 
 @router.post("/news/digest-now")
-async def send_news_now(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def send_news_now(
+    db: AsyncSession = Depends(get_db),
+    hours: int = Query(default=168, description="Look-back window in hours (default 168h / 7 days)"),
+) -> dict[str, object]:
     from app.services.digest.assembler import run_news_digest
-    await run_news_digest(db)
-    return {"status": "news_triggered"}
+    return await run_news_digest(db, hours=hours)
 
 
 @router.get("/news/preview")
-async def preview_news_digest(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
-    from app.services.digest.assembler import assemble_html, fetch_today_items
+async def preview_news_digest(
+    db: AsyncSession = Depends(get_db),
+    hours: int = Query(default=168, description="Look-back window in hours (default 168h / 7 days)"),
+) -> dict[str, object]:
+    from app.services.digest.assembler import assemble_html, fetch_news_items
 
-    items = await fetch_today_items(db)
+    items = await fetch_news_items(db, hours=hours)
     html = assemble_html(items, subject="[PREVIEW] Daily Intel: News", template_name="news.html.j2")
-    return {"item_count": len(items), "html_length": len(html)}
+    return {"item_count": len(items), "html_length": len(html), "html": html}
 
 
 # ── Jobs digest ───────────────────────────────────────────────────────────────
@@ -42,8 +47,7 @@ async def send_jobs_digest_now(
     Force (force=true): resends previously sent jobs; does NOT modify emailed_at.
     """
     from app.services.jobs.job_digest import send_jobs_digest
-
-    return await send_jobs_digest(db, hours=hours, include_experiment=include_experiment, force=force)
+    return await send_jobs_digest(hours=hours, include_experiment=include_experiment, force=force)
 
 
 @router.get("/jobs/preview")
@@ -67,8 +71,7 @@ async def send_experiment_digest_now(
 ) -> dict[str, object]:
     """Send a digest email containing only Browserbase experiment jobs."""
     from app.services.jobs.job_digest import send_jobs_digest
-
-    return await send_jobs_digest(db, hours=hours, only_experiment=True)
+    return await send_jobs_digest(hours=hours, only_experiment=True)
 
 
 @router.get("/jobs/experiment-summary")
@@ -97,15 +100,20 @@ async def experiment_summary(db: AsyncSession = Depends(get_db)) -> dict[str, ob
 
 @router.post("/jobs/scrape-now")
 async def scrape_jobs_now(company: str | None = None) -> dict[str, object]:
-    """Trigger an immediate V3 scrape of active target companies.
+    """Trigger V4 scrape: LinkedIn Jobs Apify → Adzuna → Gap Analysis → T1/T2.
 
-    Pass ?company=<slug> for a single-company run (fast — bypasses TTL skip
-    and batch cooldowns for quick testing). Returns aggregate counts + per-
-    company results including tier (t1/t2/t3) and outcome.
+    Pass ?company=<slug> for a single-company run (bypasses phases 1-3,
+    runs T1→T2 directly for that company — fast testing mode).
+
+    Full run (no company param) executes the 4-phase V4 flow:
+      1. LinkedIn Jobs Apify scraper (valig/linkedin-jobs-scraper)
+      2. Adzuna free API
+      3. Gap analysis — which target companies are NOT covered?
+      4. T1 Apify → T2 Browserbase only for uncovered companies
     """
-    from app.services.jobs.scrape_orchestrator import orchestrate_scrape
+    from app.services.jobs.scrape_orchestrator import orchestrate_scrape_v4
 
-    stats = await orchestrate_scrape(slug=company, is_manual=True)
+    stats = await orchestrate_scrape_v4(slug=company, is_manual=True)
     return {"status": "completed", **stats}
 
 
@@ -115,6 +123,15 @@ async def scrape_adzuna_now() -> dict[str, object]:
     from app.services.jobs.free_apis.adzuna import poll_adzuna
 
     stats = await poll_adzuna()
+    return stats
+
+
+@router.post("/jobs/linkedin-jobs")
+async def scrape_linkedin_now() -> dict[str, object]:
+    """Trigger an immediate scrape of LinkedIn Jobs Apify."""
+    from app.services.jobs.free_apis.linkedin_jobs_apify import poll_and_persist_linkedin_jobs_apify
+
+    _, stats = await poll_and_persist_linkedin_jobs_apify()
     return stats
 
 

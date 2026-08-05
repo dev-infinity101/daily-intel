@@ -80,3 +80,15 @@ pytest tests/ -v -m integration               # needs docker compose up
 | 6 | Module 1 — WhatsApp (Baileys) |
 | 7 | Module 3 — LinkedIn (RapidAPI) |
 | 8 | Hardening + observability + prod deploy |
+
+## Recent Updates
+
+**Job Scraping & Filtering:**
+- Upgraded the Adzuna scraper with concurrent pagination (fetching up to 4 pages per keyword simultaneously) to scale ingestion past the 50 results-per-page limit.
+- Migrated LinkedIn Apify scraping to the `curious_coder/linkedin-jobs-scraper` actor. Configured with strict caps (`splitByLocation=False`, `scrapeCompany=False`, max 50 items) to prevent deep company scraping and runaway costs.
+- Hardened the ingestion pipeline: Removed legacy bypass logic for LinkedIn/Adzuna so all incoming jobs must pass the central EV and business role classifier before persisting.
+
+**News Digest & Email Assembly:**
+- Fixed a major batching bug in `assembler.py` where job postings were being silently merged into the news digest queries, causing empty HTML blocks and blank news batches.
+- Increased the News batch size (`NEWS_BATCH_SIZE`) from 20 to 50 articles per email to reduce inbox clutter.
+- Resolved minor syntax (`Any` NameError) and logging issues in the email generation code.

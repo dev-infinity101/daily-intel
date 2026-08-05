@@ -14,7 +14,7 @@ Separate from the general daily digest so the jobs pipeline can be triggered
 and tested in isolation without touching news/telegram/linkedin digest logic.
 """
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.job import Job
 from app.services.email.sender import send_email
 from app.services.jobs.classifier import evaluate_job_filter
+from app.utils.llm_client import call_llm_with_rate_limit
 
 log = structlog.get_logger()
 
@@ -59,7 +60,7 @@ async def fetch_recent_jobs(
     include_experiment=False (default) → exclude experiment rows
     include_experiment=True → all rows
     """
-    cutoff = (datetime.now(IST) - timedelta(hours=hours)).astimezone(timezone.utc)
+    cutoff = (datetime.now(IST) - timedelta(hours=hours)).astimezone(UTC)
     filters = [
         Job.is_closed == False,  # noqa: E712
         Job.first_seen_at >= cutoff,
@@ -101,7 +102,7 @@ async def _mark_jobs_emailed(db: AsyncSession, job_ids: list[int]) -> None:
     """Stamp emailed_at on all sent jobs to prevent re-sending."""
     if not job_ids:
         return
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await db.execute(
         update(Job).where(Job.id.in_(job_ids)).values(emailed_at=now)
     )
@@ -129,6 +130,7 @@ async def _generate_summaries(jobs: list[Job]) -> dict[int, str]:
         return {}
     
     import json
+
     from openai import AsyncOpenAI
     
     client = AsyncOpenAI(
@@ -151,7 +153,8 @@ Return ONLY a JSON object mapping the job "id" (as string) to the one-line "summ
 Example: {{"123": "Lead the development of high-power EV charging infrastructure."}}
 """
     try:
-        response = await client.chat.completions.create(
+        response = await call_llm_with_rate_limit(
+            client=client,
             model=settings.tensormux_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
@@ -163,8 +166,6 @@ Example: {{"123": "Lead the development of high-power EV charging infrastructure
         content = response.choices[0].message.content
         if not content:
             return {}
-        if "</think>" in content:
-            content = content.split("</think>")[-1]
         content = content.strip()
         if content.startswith("```"):
             content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -185,7 +186,6 @@ Example: {{"123": "Lead the development of high-power EV charging infrastructure
 
 
 async def send_jobs_digest(
-    db: AsyncSession,
     hours: int = 48,
     include_experiment: bool = False,
     only_experiment: bool = False,
@@ -206,31 +206,34 @@ async def send_jobs_digest(
       {"status": "no_jobs",      "count": 0}
       {"status": "error",        "count": N_sent_so_far, "batches_sent": B, "error": "..."}
     """
-    jobs = await fetch_recent_jobs(
-        db,
-        hours=hours,
-        include_experiment=include_experiment,
-        only_experiment=only_experiment,
-        unsent_only=not force,
-    )
-
-    if not jobs and not force:
-        all_jobs = await fetch_recent_jobs(
-            db, hours=hours, include_experiment=include_experiment,
-            only_experiment=only_experiment, unsent_only=False,
+    from app.database import SessionLocal
+    
+    async with SessionLocal() as db:
+        jobs = await fetch_recent_jobs(
+            db,
+            hours=hours,
+            include_experiment=include_experiment,
+            only_experiment=only_experiment,
+            unsent_only=not force,
         )
-        if all_jobs:
-            last_sent = max((j.emailed_at for j in all_jobs if j.emailed_at), default=None)
-            log.info("jobs_digest.all_already_sent", count=len(all_jobs), last_sent=str(last_sent))
-            return {
-                "status": "already_sent",
-                "count": 0,
-                "already_sent_count": len(all_jobs),
-                "last_sent_at": str(last_sent) if last_sent else None,
-                "tip": "Use ?force=true to resend, or wait for new jobs to be scraped.",
-            }
-        log.info("jobs_digest.empty", hours=hours)
-        return {"status": "no_jobs", "count": 0}
+
+        if not jobs and not force:
+            all_jobs = await fetch_recent_jobs(
+                db, hours=hours, include_experiment=include_experiment,
+                only_experiment=only_experiment, unsent_only=False,
+            )
+            if all_jobs:
+                last_sent = max((j.emailed_at for j in all_jobs if j.emailed_at), default=None)
+                log.info("jobs_digest.all_already_sent", count=len(all_jobs), last_sent=str(last_sent))
+                return {
+                    "status": "already_sent",
+                    "count": 0,
+                    "already_sent_count": len(all_jobs),
+                    "last_sent_at": str(last_sent) if last_sent else None,
+                    "tip": "Use ?force=true to resend, or wait for new jobs to be scraped.",
+                }
+            log.info("jobs_digest.empty", hours=hours)
+            return {"status": "no_jobs", "count": 0}
 
     # ── Split into batches ────────────────────────────────────────────────────
     batches = [jobs[i:i + BATCH_SIZE] for i in range(0, len(jobs), BATCH_SIZE)]
@@ -283,10 +286,10 @@ async def send_jobs_digest(
                 "error": str(exc),
             }
 
-        # Stamp emailed_at immediately after each successful batch send.
-        # This prevents re-sending this batch even if a later batch fails.
-        if not force:
-            await _mark_jobs_emailed(db, [j.id for j in batch_jobs])
+        # Update DB emailed_at immediately for this batch
+        if not force and batch_jobs:
+            async with SessionLocal() as db_update:
+                await _mark_jobs_emailed(db_update, [j.id for j in batch_jobs])
 
         sent_count += n
 

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://intel:intel_dev@localhost:5432/intel"
     tensormux_api_key: str = ""
-    tensormux_model: str = "qwen3-6-35b-a3b"
+    tensormux_model: str = "north-mini-code"
     resend_api_key: str = ""
     email_from: str = "intel@example.com"
     email_to: str = ""  # comma-separated list, parsed at send time
@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     # Adzuna API credentials
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
+    # LinkedIn Jobs Apify scraper (valig/linkedin-jobs-scraper)
+    linkedin_jobs_apify_actor_id: str = "valig/linkedin-jobs-scraper"
+    linkedin_jobs_apify_title: str = "deputy manager"
+    linkedin_jobs_apify_location: str = "india"
+    linkedin_jobs_apify_date_posted: str = "r604800"
+    linkedin_jobs_apify_limit: int = 50
 
 
 settings = Settings()

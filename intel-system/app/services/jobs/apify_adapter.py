@@ -7,16 +7,15 @@ POSTed to the internal /ingest endpoint.
 Webhook flow (production): Apify → POST /ingest/jobs/apify-complete
 Poll flow (local/dev): APScheduler triggers poll_all_target_companies() directly.
 """
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 import structlog
 
 from app.config import settings
 from app.schemas.job import JobIn
-from app.services.jobs.classifier import extract_skills, infer_experience_level, infer_remote
-from app.services.jobs.normalizer import compute_job_dedup_hash
+from app.services.jobs.classifier import infer_remote
 
 log = structlog.get_logger()
 

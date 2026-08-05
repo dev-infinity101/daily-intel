@@ -1,5 +1,5 @@
 """Greenhouse public job board API — https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"""
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 import structlog

@@ -1,5 +1,5 @@
 """Ashby public job board API — https://jobs.ashbyhq.com/api/non-user-facing/job-board/jobs?organizationHostedJobsPageName={slug}"""
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 import structlog

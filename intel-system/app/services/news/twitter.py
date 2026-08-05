@@ -27,7 +27,7 @@ log = structlog.get_logger()
 _APIFY_BASE = "https://api.apify.com/v2"
 
 # Twitter/X accounts to pull recent posts from. Add more handles here.
-TWITTER_HANDLES: list[str] = ["TheStreet"]
+TWITTER_HANDLES: list[str] = ["xroaders_001", "teslaclubin"]
 MAX_TWEETS_PER_HANDLE = 30
 
 
@@ -145,18 +145,15 @@ async def poll_twitter() -> dict[str, Any]:
         log.error("twitter.apify_unknown_error", error=str(e))
         return {"status": "error", "reason": "apify_unknown_error", "message": str(e)}
 
-    log.info("twitter.fetched", count=len(raw_tweets))
-
     items = [n for t in raw_tweets if (n := _normalize_tweet(t)) is not None]
-    filtered, dropped = filter_items(items)
-    log.info("twitter.keyword_filter", kept=len(filtered), dropped=dropped)
+    log.info("twitter.bypassed_filter", count=len(items))
 
-    if not filtered:
+    if not items:
         return {
             "status": "ok",
             "fetched": len(raw_tweets),
             "kept": 0,
-            "dropped": dropped,
+            "dropped": 0,
             "accepted": 0,
             "duplicates": 0,
         }
@@ -166,14 +163,14 @@ async def poll_twitter() -> dict[str, Any]:
         result = await ingest_items(
             db,
             source_type="twitter",
-            request=IngestRequest(source_identifier="twitter_handles", items=filtered),
+            request=IngestRequest(source_identifier="twitter_handles", items=items),
         )
         log.info("twitter.ingested", accepted=result.accepted, duplicates=result.duplicates)
         return {
             "status": "ok",
             "fetched": len(raw_tweets),
-            "kept": len(filtered),
-            "dropped": dropped,
+            "kept": len(items),
+            "dropped": 0,
             "accepted": result.accepted,
             "duplicates": result.duplicates,
         }

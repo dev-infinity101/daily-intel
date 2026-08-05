@@ -13,7 +13,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 # Source types that must pass the news keyword filter before DB write.
 # Covers n8n-originated RSS items as well as any external poster using these types.
-_NEWS_SOURCE_TYPES = {"rss_global", "custom_site", "twitter", "linkedin_news"}
+_NEWS_SOURCE_TYPES = {"rss_global", "custom_site", "linkedin_news"}
 
 
 def _verify_token(x_ingest_token: str = Header(...)) -> None:

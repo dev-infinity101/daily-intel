@@ -9,8 +9,8 @@ from typing import Any
 from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
+from app.utils.llm_client import call_llm_with_rate_limit
 from app.database import SessionLocal
 from app.models.processed_item import ProcessedItem
 from app.models.raw_item import RawItem
@@ -47,8 +47,6 @@ Return ONLY a JSON object with this exact structure:
 
 def _parse_dict_safe(text: str) -> dict[str, Any] | None:
     """Safely parse LLM dict JSON, stripping markdown code blocks if present."""
-    if "</think>" in text:
-        text = text.split("</think>")[-1]
     text = text.strip()
     if text.startswith("```json"):
         text = text[7:]
@@ -75,7 +73,8 @@ def _parse_dict_safe(text: str) -> dict[str, Any] | None:
 
 async def _process_chunk_with_llm(text_chunk: str, client: AsyncOpenAI) -> dict[str, Any] | None:
     try:
-        response = await client.chat.completions.create(
+        response = await call_llm_with_rate_limit(
+            client=client,
             model=settings.tensormux_model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},

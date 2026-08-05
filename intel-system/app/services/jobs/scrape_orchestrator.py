@@ -20,7 +20,7 @@ import asyncio
 import random
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -68,7 +68,7 @@ def _is_within_ttl(last_success_at: datetime | None) -> bool:
     """Return True when a company was already successfully scraped within TTL."""
     if not last_success_at:
         return False
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=SUCCESS_TTL_HOURS)
+    cutoff = datetime.now(UTC) - timedelta(hours=SUCCESS_TTL_HOURS)
     return last_success_at > cutoff
 
 
@@ -165,6 +165,7 @@ async def _record_attempt(
 async def _update_routing(db, company, tier: str, outcome: str, jobs_inserted: int) -> None:
     """Update preferred_scraper, last_success_at, and consecutive_failures."""
     from sqlalchemy import update
+
     from app.models.target_company import TargetCompany
 
     try:
@@ -174,7 +175,7 @@ async def _update_routing(db, company, tier: str, outcome: str, jobs_inserted: i
                 .where(TargetCompany.id == company.id)
                 .values(
                     preferred_scraper=tier,           # pin winning tier
-                    last_success_at=datetime.now(timezone.utc),
+                    last_success_at=datetime.now(UTC),
                     consecutive_failures=0,
                 )
             )
@@ -450,9 +451,9 @@ def _write_failed_md(
       WATCHLISTED      — ≥3 consecutive failures; skipped this run.
                          Fix: repair URL, then reset consecutive_failures in DB.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     # Build slug → career_urls map from the in-memory company list
     url_map: dict[str, list[str]] = {
@@ -484,21 +485,21 @@ def _write_failed_md(
     watchlisted_rows = [r for r in run_results if r.get("tier") == TIER_T3]
 
     lines: list[str] = [
-        f"# Failed Companies Report",
-        f"",
+        "# Failed Companies Report",
+        "",
         f"**Run ID:** `{run_id}`  |  **Generated:** {now}",
-        f"",
-        f"Companies that produced **zero inserted jobs** in this scrape run.",
-        f"Use this file to prioritise filtering and URL fixes.",
-        f"",
-        f"| Category | Count |",
-        f"|----------|-------|",
+        "",
+        "Companies that produced **zero inserted jobs** in this scrape run.",
+        "Use this file to prioritise filtering and URL fixes.",
+        "",
+        "| Category | Count |",
+        "|----------|-------|",
         f"| 🔴 Filter Blocked (jobs found, EV filter rejected all) | {len(filter_blocked)} |",
         f"| 🟠 SPA / Empty Dataset (page didn't render) | {len(spa_empty)} |",
         f"| 🟡 Network / Rate-limit Failure | {len(network_fail)} |",
         f"| ⚫ Terminal (bad URL / 404) | {len(terminal)} |",
         f"| 🔵 Watchlisted (≥3 consecutive failures, skipped) | {len(watchlisted_rows)} |",
-        f"",
+        "",
     ]
 
     def _url_cell(slug: str) -> str:
@@ -584,9 +585,9 @@ def _write_failed_md(
         "",
         "## 🔵 Watchlisted — Skipped (≥3 Consecutive Failures)",
         "",
-        f"> These companies were **not attempted** this run (T3 skip).",
-        f"> `consecutive_failures` was **reset to 0** at end of this run — they will be retried next cycle.",
-        f"> **Fix:** Repair the career URL or resolve the rendering issue, then monitor next run.",
+        "> These companies were **not attempted** this run (T3 skip).",
+        "> `consecutive_failures` was **reset to 0** at end of this run — they will be retried next cycle.",
+        "> **Fix:** Repair the career URL or resolve the rendering issue, then monitor next run.",
         "",
     ]
     lines += _company_table(watchlisted_rows)
@@ -641,9 +642,10 @@ async def orchestrate_scrape(slug: str | None = None, is_manual: bool = False) -
         }
 
     async with _scrape_lock:
+        from sqlalchemy import select
+
         from app.database import SessionLocal
         from app.models.target_company import TargetCompany
-        from sqlalchemy import select
 
         run_id = str(uuid.uuid4())[:8]
         run_start = time.monotonic()
@@ -857,6 +859,7 @@ async def orchestrate_scrape(slug: str | None = None, is_manual: bool = False) -
         # Gives them a fresh retry next run instead of staying permanently blocked.
         if watchlist:
             from sqlalchemy import update as _update
+
             from app.models.target_company import TargetCompany
             db = SessionLocal()
             try:
@@ -888,3 +891,369 @@ async def orchestrate_scrape(slug: str | None = None, is_manual: bool = False) -
             "watchlist": watchlist,
             "results": run_results,
         }
+
+
+# ── V4 orchestration: LinkedIn Jobs Apify → Adzuna → Gap → T1/T2 ─────────────
+
+async def orchestrate_scrape_v4(
+    slug: str | None = None,
+    is_manual: bool = False,
+) -> dict:
+    """V4 entry point: broad scrapers first, then targeted career-page scraping.
+
+    Flow:
+      Phase 1 — LinkedIn Jobs Apify (valig/linkedin-jobs-scraper)
+      Phase 2 — Adzuna free API
+      Phase 3 — Gap analysis: which target companies are NOT covered?
+      Phase 4 — T1 Apify → T2 Browserbase for uncovered companies only
+
+    Single-company mode (?company=<slug>) skips phases 1-3 and directly
+    runs T1→T2 for that company (identical to orchestrate_scrape behaviour).
+
+    Protected by the same _scrape_lock to prevent concurrent runs.
+    """
+    # Single-company mode: skip broad scrapers, go straight to T1→T2
+    if slug:
+        return await orchestrate_scrape(slug=slug, is_manual=is_manual)
+
+    if _scrape_lock.locked():
+        log.warning("orchestrator_v4.already_running")
+        return {
+            "run_id": "busy",
+            "status": "already_running",
+            "phase1_linkedin": {},
+            "phase2_adzuna": {},
+            "phase3_gap_analysis": {},
+            "phase4_targeted": {},
+        }
+
+    async with _scrape_lock:
+        run_id = str(uuid.uuid4())[:8]
+        run_start = time.monotonic()
+        log.info("orchestrator_v4.run_start", run_id=run_id)
+
+        # ── Phase 1: LinkedIn Jobs Apify ──────────────────────────────────────
+        log.info("orchestrator_v4.phase1_start", phase="linkedin_jobs_apify")
+        phase1_start = time.monotonic()
+
+        try:
+            from app.services.jobs.free_apis.linkedin_jobs_apify import (
+                poll_and_persist_linkedin_jobs_apify,
+            )
+            linkedin_jobs, linkedin_stats = await poll_and_persist_linkedin_jobs_apify()
+        except Exception as exc:
+            log.exception("orchestrator_v4.phase1_failed")
+            linkedin_jobs = []
+            linkedin_stats = {"status": "error", "error": str(exc)}
+
+        phase1_ms = int((time.monotonic() - phase1_start) * 1000)
+        linkedin_stats["duration_ms"] = phase1_ms
+        log.info(
+            "orchestrator_v4.phase1_done",
+            jobs_fetched=len(linkedin_jobs),
+            inserted=linkedin_stats.get("jobs_inserted", 0),
+            duration_ms=phase1_ms,
+        )
+
+        # ── Phase 2: Adzuna ───────────────────────────────────────────────────
+        log.info("orchestrator_v4.phase2_start", phase="adzuna")
+        phase2_start = time.monotonic()
+
+        try:
+            from app.services.jobs.free_apis.adzuna import fetch_and_persist_adzuna
+            adzuna_jobs, adzuna_stats = await fetch_and_persist_adzuna()
+        except Exception as exc:
+            log.exception("orchestrator_v4.phase2_failed")
+            adzuna_jobs = []
+            adzuna_stats = {"status": "error", "error": str(exc)}
+
+        phase2_ms = int((time.monotonic() - phase2_start) * 1000)
+        adzuna_stats["duration_ms"] = phase2_ms
+        log.info(
+            "orchestrator_v4.phase2_done",
+            jobs_fetched=len(adzuna_jobs),
+            inserted=adzuna_stats.get("jobs_inserted", 0),
+            duration_ms=phase2_ms,
+        )
+
+        # ── Phase 3: Gap analysis ─────────────────────────────────────────────
+        log.info("orchestrator_v4.phase3_start", phase="gap_analysis")
+        phase3_start = time.monotonic()
+
+        from sqlalchemy import select
+        from app.database import SessionLocal
+        from app.models.target_company import TargetCompany
+
+        # Load all active target companies
+        db = SessionLocal()
+        try:
+            stmt = (
+                select(TargetCompany)
+                .where(TargetCompany.is_active == True)  # noqa: E712
+                .order_by(
+                    TargetCompany.priority.desc(),
+                    TargetCompany.last_success_at.asc().nullsfirst(),
+                )
+            )
+            result = await db.execute(stmt)
+            all_companies = list(result.scalars().all())
+        finally:
+            await db.close()
+
+        # Merge all scraped jobs for analysis
+        all_scraped_jobs = linkedin_jobs + adzuna_jobs
+
+        # Run gap analysis
+        try:
+            from app.services.jobs.gap_analyzer import analyze_coverage
+            uncovered_companies = await analyze_coverage(all_scraped_jobs, all_companies)
+        except Exception as exc:
+            log.exception("orchestrator_v4.phase3_failed")
+            # On failure, fall back to scraping all companies
+            uncovered_companies = all_companies
+
+        phase3_ms = int((time.monotonic() - phase3_start) * 1000)
+        gap_stats = {
+            "total_targets": len(all_companies),
+            "covered_by_broad_scrapers": len(all_companies) - len(uncovered_companies),
+            "uncovered_for_t1t2": len(uncovered_companies),
+            "uncovered_slugs": [c.slug for c in uncovered_companies[:20]],
+            "total_broad_jobs": len(all_scraped_jobs),
+            "duration_ms": phase3_ms,
+        }
+        log.info("orchestrator_v4.phase3_done", **gap_stats)
+
+        # ── Phase 4: T1→T2 for uncovered companies ───────────────────────────
+        log.info(
+            "orchestrator_v4.phase4_start",
+            phase="targeted_t1t2",
+            companies=len(uncovered_companies),
+        )
+        phase4_start = time.monotonic()
+
+        # TTL skip for uncovered companies
+        ttl_skipped = [c for c in uncovered_companies if _is_within_ttl(c.last_success_at)]
+        work_queue = [c for c in uncovered_companies if not _is_within_ttl(c.last_success_at)]
+
+        # Monthly budget check
+        db = SessionLocal()
+        try:
+            monthly_t1 = await _get_monthly_t1_count(db)
+            monthly_t2 = await _get_monthly_t2_count(db)
+        finally:
+            await db.close()
+
+        t1_soft_limit = int(settings.apify_monthly_cu_limit * 0.8)
+        t2_soft_limit = int(settings.browserbase_monthly_minutes_limit * 0.8)
+        t1_budget_ok = monthly_t1 < t1_soft_limit
+        t2_budget_ok = monthly_t2 < t2_soft_limit
+
+        log.info(
+            "orchestrator_v4.phase4_budget",
+            monthly_t1=monthly_t1, t1_limit=t1_soft_limit, t1_ok=t1_budget_ok,
+            monthly_t2=monthly_t2, t2_limit=t2_soft_limit, t2_ok=t2_budget_ok,
+        )
+
+        # Batch loop — reuses the exact T1/T2 logic from orchestrate_scrape
+        batches = [work_queue[i:i + BATCH_SIZE] for i in range(0, len(work_queue), BATCH_SIZE)]
+        run_results: list[dict] = []
+        watchlist: list[str] = []
+        t1_quota_hit: bool = False
+
+        log.info(
+            "orchestrator_v4.phase4_batches",
+            total_companies=len(work_queue),
+            ttl_skipped=len(ttl_skipped),
+            batches=len(batches),
+        )
+
+        for batch_idx, batch in enumerate(batches):
+            log.info("orchestrator_v4.batch_start", batch=batch_idx + 1, of=len(batches), size=len(batch))
+
+            t1_candidates: list = []
+            t2_candidates: list = []
+
+            for company in batch:
+                route = _resolve_route(company)
+                if route == TIER_T3:
+                    watchlist.append(company.slug)
+                    run_results.append({
+                        "slug": company.slug, "display_name": company.display_name,
+                        "tier": TIER_T3, "outcome": OUTCOME_TERMINAL,
+                        "jobs_found": 0, "jobs_inserted": 0,
+                    })
+                    log.info(
+                        "orchestrator_v4.watchlist",
+                        company=company.slug,
+                        consecutive_failures=company.consecutive_failures,
+                    )
+                elif route == TIER_T2:
+                    t2_candidates.append(company)
+                else:
+                    t1_candidates.append(company)
+
+            # T1: Apify — strictly sequential
+            t2_escalations: list = []
+
+            if t1_candidates:
+                if not t1_budget_ok:
+                    log.warning("orchestrator_v4.t1_budget_exhausted", deferred=len(t1_candidates))
+                    for company in t1_candidates:
+                        run_results.append({
+                            "slug": company.slug, "display_name": company.display_name,
+                            "tier": TIER_T1, "outcome": OUTCOME_SKIPPED,
+                            "jobs_found": 0, "jobs_inserted": 0,
+                        })
+                else:
+                    for idx, company in enumerate(t1_candidates):
+                        if t1_quota_hit:
+                            run_results.append({
+                                "slug": company.slug, "display_name": company.display_name,
+                                "tier": TIER_T1, "outcome": OUTCOME_SKIPPED,
+                                "jobs_found": 0, "jobs_inserted": 0,
+                            })
+                            continue
+
+                        res = await _run_t1_single(company, run_id)
+                        run_results.append(res)
+
+                        if res["outcome"] == OUTCOME_QUOTA_EXCEEDED:
+                            t1_quota_hit = True
+                            log.warning(
+                                "orchestrator_v4.t1_quota_stop",
+                                company=company.slug,
+                                remaining=len(t1_candidates) - idx - 1,
+                            )
+                            continue
+
+                        if (
+                            _should_escalate_to_t2(res["outcome"])
+                            and res.get("is_spa", True)
+                            and t2_budget_ok
+                        ):
+                            t2_escalations.append(company)
+
+                        if idx < len(t1_candidates) - 1:
+                            await asyncio.sleep(T1_INTER_COMPANY_S)
+
+            # T2: Browserbase — strictly sequential
+            all_t2 = t2_candidates + t2_escalations
+
+            if all_t2:
+                if not t2_budget_ok:
+                    log.warning("orchestrator_v4.t2_budget_exhausted", deferred=len(all_t2))
+                    for company in all_t2:
+                        watchlist.append(company.slug)
+                        run_results.append({
+                            "slug": company.slug, "display_name": company.display_name,
+                            "tier": TIER_T3, "outcome": OUTCOME_SKIPPED,
+                            "jobs_found": 0, "jobs_inserted": 0,
+                        })
+                else:
+                    for company in all_t2:
+                        res = await _run_t2_single(company, run_id)
+                        run_results.append(res)
+                        await asyncio.sleep(random.uniform(T2_JITTER_MIN_S, T2_JITTER_MAX_S))
+
+            log.info("orchestrator_v4.batch_done", batch=batch_idx + 1, results_so_far=len(run_results))
+
+            if batch_idx < len(batches) - 1:
+                cooldown = random.uniform(COOLDOWN_MIN_S, COOLDOWN_MAX_S)
+                log.info("orchestrator_v4.cooldown", seconds=round(cooldown, 1))
+                await asyncio.sleep(cooldown)
+
+        phase4_ms = int((time.monotonic() - phase4_start) * 1000)
+
+        # Phase 4 summary
+        successful = [r for r in run_results if r["outcome"] == OUTCOME_SUCCESS]
+        p4_jobs_fetched = sum(r.get("jobs_found", 0) for r in run_results)
+        p4_jobs_inserted = sum(r.get("jobs_inserted", 0) for r in run_results)
+
+        # Write Failed.md for Phase 4 results
+        try:
+            _write_failed_md(
+                run_results=run_results,
+                all_companies=uncovered_companies,
+                ttl_skipped=ttl_skipped,
+                watchlist_slugs=watchlist,
+                run_id=run_id,
+            )
+        except Exception as exc:
+            log.warning("orchestrator_v4.failed_md_exception", error=str(exc))
+
+        # Reset watchlist consecutive_failures
+        if watchlist:
+            from sqlalchemy import update as _update
+            from app.models.target_company import TargetCompany as TC
+            db = SessionLocal()
+            try:
+                await db.execute(
+                    _update(TC)
+                    .where(TC.slug.in_(watchlist))
+                    .values(consecutive_failures=0)
+                )
+                await db.commit()
+                log.info("orchestrator_v4.watchlist_reset", count=len(watchlist))
+            except Exception as exc:
+                log.warning("orchestrator_v4.watchlist_reset_failed", error=str(exc))
+                await db.rollback()
+            finally:
+                await db.close()
+
+        targeted_stats = {
+            "companies_attempted": len(run_results),
+            "companies_with_jobs": len(successful),
+            "companies_ttl_skipped": len(ttl_skipped),
+            "companies_watchlist": len(watchlist),
+            "jobs_fetched": p4_jobs_fetched,
+            "jobs_inserted": p4_jobs_inserted,
+            "duration_ms": phase4_ms,
+            "results": run_results,
+        }
+
+        # ── Grand summary ─────────────────────────────────────────────────────
+        total_duration_ms = int((time.monotonic() - run_start) * 1000)
+        total_inserted = (
+            linkedin_stats.get("jobs_inserted", 0)
+            + adzuna_stats.get("jobs_inserted", 0)
+            + p4_jobs_inserted
+        )
+        total_fetched = (
+            len(linkedin_jobs) + len(adzuna_jobs) + p4_jobs_fetched
+        )
+
+        sep = "=" * 65
+        print(f"\n{sep}")
+        print(f"  V4 SCRAPE RUN  --  run_id={run_id}")
+        print(sep)
+        print(f"  Phase 1 (LinkedIn Jobs Apify) : {len(linkedin_jobs)} fetched, {linkedin_stats.get('jobs_inserted', 0)} inserted")
+        print(f"  Phase 2 (Adzuna)              : {len(adzuna_jobs)} fetched, {adzuna_stats.get('jobs_inserted', 0)} inserted")
+        print(f"  Phase 3 (Gap Analysis)        : {gap_stats['covered_by_broad_scrapers']} covered, {gap_stats['uncovered_for_t1t2']} uncovered")
+        print(f"  Phase 4 (Targeted T1/T2)      : {p4_jobs_fetched} fetched, {p4_jobs_inserted} inserted")
+        print(f"  ────────────────────────────────────────────")
+        print(f"  Total jobs fetched            : {total_fetched}")
+        print(f"  Total jobs inserted           : {total_inserted}")
+        print(f"  Total duration                : {total_duration_ms / 1000:.1f}s")
+        if watchlist:
+            print(f"\n  WATCHLIST: {', '.join(watchlist[:10])}")
+        print(f"{sep}\n")
+
+        log.info(
+            "orchestrator_v4.run_complete",
+            run_id=run_id,
+            total_fetched=total_fetched,
+            total_inserted=total_inserted,
+            duration_ms=total_duration_ms,
+        )
+
+        return {
+            "run_id": run_id,
+            "phase1_linkedin": linkedin_stats,
+            "phase2_adzuna": adzuna_stats,
+            "phase3_gap_analysis": gap_stats,
+            "phase4_targeted": targeted_stats,
+            "total_jobs_fetched": total_fetched,
+            "total_jobs_inserted": total_inserted,
+            "duration_ms": total_duration_ms,
+        }
+

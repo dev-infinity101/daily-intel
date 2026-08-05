@@ -8,9 +8,9 @@ are written to the DB.
 Resilience: each job is inserted inside its own savepoint so a single
 constraint violation or schema error never silently drops the whole batch.
 """
-import structlog
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+import structlog
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,6 @@ from app.services.jobs.classifier import (
     evaluate_job_filter,
     extract_skills,
     infer_experience_level,
-    match_target_tags,
     score_ev_relevance,
 )
 from app.services.jobs.normalizer import compute_job_dedup_hash
@@ -109,6 +108,10 @@ async def persist_filtered_jobs(
                 is_target=is_target,
                 reason=reason,
                 location=job.location,
+                location_status=filter_result.location_status,
+                domain_status=filter_result.domain_status,
+                role_status=filter_result.role_status,
+                title_keywords=filter_result.title_keywords[:5],
             )
             continue
 
@@ -121,6 +124,9 @@ async def persist_filtered_jobs(
             is_target=is_target,
             score=filter_result.score,
             reason=reason,
+            domain_status=filter_result.domain_status,
+            role_status=filter_result.role_status,
+            title_keywords=filter_result.title_keywords[:5],
         )
 
         # ── 2. Dedup check ───────────────────────────────────────────────────
@@ -146,7 +152,7 @@ async def persist_filtered_jobs(
                 await db.execute(
                     update(Job)
                     .where(Job.id == existing.id)
-                    .values(last_seen_at=datetime.now(timezone.utc))
+                    .values(last_seen_at=datetime.now(UTC))
                 )
                 await db.flush()
             except Exception:

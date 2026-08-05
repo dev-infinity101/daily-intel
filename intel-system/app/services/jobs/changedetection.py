@@ -7,11 +7,12 @@ and routes the diff HTML to Gemini for structured job extraction.
 import hashlib
 import hmac
 import json
-import time
+
 import structlog
 
 from app.config import settings
 from app.schemas.job import JobIn
+from app.utils.llm_client import call_llm_with_rate_limit
 
 log = structlog.get_logger()
 
@@ -34,8 +35,6 @@ def verify_webhook_signature(body: bytes, signature: str) -> bool:
 # [DIAG-PATCH-APPLIED]
 def _parse_llm_json_safe(text: str) -> list:
     """Parse LLM JSON with fallbacks for common model quirks."""
-    if "</think>" in text:
-        text = text.split("</think>")[-1]
     import re as _re
     text = text.strip()
     if not text or text in ("null", "{}", "[]"):
@@ -69,8 +68,8 @@ async def extract_jobs_from_diff(diff_html: str, source_url: str) -> list[JobIn]
         return []
 
     import asyncio
-    import json
-    from openai import AsyncOpenAI, APIStatusError
+
+    from openai import APIStatusError, AsyncOpenAI
 
     client = AsyncOpenAI(
         api_key=settings.tensormux_api_key,
@@ -107,10 +106,13 @@ Content:
     last_exc: Exception | None = None
     for attempt in range(1, 4):
         try:
-            response = await client.chat.completions.create(
+            response = await call_llm_with_rate_limit(
+                client=client,
                 model=settings.tensormux_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
+                max_tokens=4096,
+                timeout=120.0,
             )
             if not response.choices:
                 log.warning("changedetection.empty_choices", url=source_url, attempt=attempt, model=settings.tensormux_model)
