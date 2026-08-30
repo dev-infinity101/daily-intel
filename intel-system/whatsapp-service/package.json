@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-service",
+  "version": "1.0.0",
+  "description": "WhatsApp ingest microservice using Baileys",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.7.2",
+    "pino": "^9.2.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

@@ -52,7 +52,8 @@ async def fetch_adzuna_keyword(
     app_key: str,
     pages: int = 4
 ) -> list[dict]:
-    """Fetch jobs from Adzuna for a specific keyword across multiple pages concurrently.
+    """Fetch jobs from Adzuna for a specific keyword across multiple pages sequentially
+    to respect rate limits.
 
     Each returned dict is tagged with ``_search_keyword`` so the
     normaliser can inject it into the description field for domain
@@ -60,17 +61,13 @@ async def fetch_adzuna_keyword(
     """
     log.info("adzuna.fetch_keyword", keyword=keyword, pages=pages)
     
-    tasks = [
-        _fetch_adzuna_page(client, keyword, app_id, app_key, page)
-        for page in range(1, pages + 1)
-    ]
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
     all_items = []
-    for res in results:
+    for page in range(1, pages + 1):
+        res = await _fetch_adzuna_page(client, keyword, app_id, app_key, page)
         if isinstance(res, list):
             all_items.extend(res)
+        # Prevent hammering the API
+        await asyncio.sleep(0.5)
             
     return all_items
 
@@ -177,17 +174,15 @@ async def poll_adzuna() -> dict:
     all_raw_jobs = []
     
     async with httpx.AsyncClient() as client:
-        tasks = [
-            fetch_adzuna_keyword(client, kw, app_id, app_key) 
-            for kw in keywords
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for res in results:
-            if isinstance(res, list):
-                all_raw_jobs.extend(res)
-            elif isinstance(res, Exception):
-                log.error("adzuna.task_exception", error=str(res))
+        for kw in keywords:
+            try:
+                res = await fetch_adzuna_keyword(client, kw, app_id, app_key)
+                if isinstance(res, list):
+                    all_raw_jobs.extend(res)
+            except Exception as e:
+                log.error("adzuna.task_exception", error=str(e))
+            # Delay between keywords
+            await asyncio.sleep(1.0)
                 
     # Deduplicate in-memory by ID
     unique_jobs_map = {}
@@ -254,17 +249,15 @@ async def _fetch_adzuna_jobs() -> list[JobIn]:
     all_raw_jobs: list[dict] = []
 
     async with httpx.AsyncClient() as client:
-        tasks = [
-            fetch_adzuna_keyword(client, kw, app_id, app_key)
-            for kw in keywords
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for res in results:
-            if isinstance(res, list):
-                all_raw_jobs.extend(res)
-            elif isinstance(res, Exception):
-                log.error("adzuna.task_exception", error=str(res))
+        for kw in keywords:
+            try:
+                res = await fetch_adzuna_keyword(client, kw, app_id, app_key)
+                if isinstance(res, list):
+                    all_raw_jobs.extend(res)
+            except Exception as e:
+                log.error("adzuna.task_exception", error=str(e))
+            # Delay between keywords
+            await asyncio.sleep(1.0)
 
     # Deduplicate in-memory by ID
     unique_jobs_map: dict[str, dict] = {}

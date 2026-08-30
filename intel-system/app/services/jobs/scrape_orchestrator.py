@@ -1257,3 +1257,274 @@ async def orchestrate_scrape_v4(
             "duration_ms": total_duration_ms,
         }
 
+
+# ── Standalone Gap Analyzer Orchestration ────────────────────────────────────
+
+async def orchestrate_gap_scrape(
+    hours: int = 48,
+    scrape_uncovered: bool = True,
+    is_manual: bool = True,
+) -> dict:
+    """Standalone Gap Analyzer:
+    1. Queries distinct company names from jobs in DB seen in the last `hours`.
+    2. Runs detailed Gap Analysis against active TargetCompany catalog.
+    3. If `scrape_uncovered` is True, runs T1→T2 targeted scraping for uncovered companies only.
+
+    Leaves /jobs/scrape-now and orchestrate_scrape_v4 untouched.
+    """
+    if _scrape_lock.locked():
+        log.warning("orchestrator_gap.already_running")
+        return {
+            "run_id": "busy",
+            "status": "already_running",
+            "gap_analysis": {},
+            "targeted_scraping": {},
+        }
+
+    async with _scrape_lock:
+        run_id = str(uuid.uuid4())[:8]
+        run_start = time.monotonic()
+        log.info("orchestrator_gap.run_start", run_id=run_id, hours=hours, scrape_uncovered=scrape_uncovered)
+
+        from datetime import datetime, timezone, timedelta
+        from sqlalchemy import select, distinct, or_
+        from app.database import SessionLocal
+        from app.models.job import Job
+        from app.models.target_company import TargetCompany
+        from app.schemas.job import JobIn
+        from app.services.jobs.gap_analyzer import analyze_coverage_detailed
+
+        # ── Step 1: Query DB for companies with jobs in last `hours` ───────
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        db = SessionLocal()
+        try:
+            target_stmt = (
+                select(TargetCompany)
+                .where(TargetCompany.is_active == True)  # noqa: E712
+                .order_by(
+                    TargetCompany.priority.desc(),
+                    TargetCompany.last_success_at.asc().nullsfirst(),
+                )
+            )
+            target_result = await db.execute(target_stmt)
+            all_companies = list(target_result.scalars().all())
+
+            job_stmt = (
+                select(distinct(Job.company))
+                .where(
+                    Job.company.isnot(None),
+                    or_(Job.first_seen_at >= cutoff, Job.last_seen_at >= cutoff),
+                )
+            )
+            job_result = await db.execute(job_stmt)
+            recent_company_names = [r[0] for r in job_result.fetchall() if r[0]]
+        finally:
+            await db.close()
+
+        # Create lightweight JobIn representations for gap matching
+        mock_jobs = [
+            JobIn(
+                company=name,
+                job_title="Representative Role",
+                location="India",
+                job_url="https://db-record.local",
+                source_type="db_historical",
+            )
+            for name in recent_company_names
+        ]
+
+        # ── Step 2: Gap analysis ──────────────────────────────────────────
+        phase_start = time.monotonic()
+        try:
+            gap_result = await analyze_coverage_detailed(mock_jobs, all_companies)
+        except Exception as exc:
+            log.exception("orchestrator_gap.analysis_failed")
+            gap_result = {
+                "covered": [],
+                "uncovered": [
+                    {
+                        "id": c.id,
+                        "slug": c.slug,
+                        "display_name": c.display_name,
+                        "priority": c.priority,
+                        "preferred_scraper": c.preferred_scraper,
+                        "last_success_at": str(c.last_success_at) if c.last_success_at else None,
+                    }
+                    for c in all_companies
+                ],
+                "uncovered_objects": all_companies,
+                "stats": {
+                    "total_targets": len(all_companies),
+                    "covered_count": 0,
+                    "uncovered_count": len(all_companies),
+                    "deterministic_matches": 0,
+                    "llm_matches": 0,
+                    "coverage_pct": 0.0,
+                    "scraped_jobs_count": len(mock_jobs),
+                    "unique_scraped_companies_count": len(recent_company_names),
+                },
+                "unique_scraped_companies": recent_company_names,
+            }
+
+        gap_duration_ms = int((time.monotonic() - phase_start) * 1000)
+        uncovered_objects = gap_result["uncovered_objects"]
+
+        # ── Step 3: Targeted T1→T2 Scraping for Uncovered Companies ─────────
+        targeted_stats: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "scrape_uncovered_is_false" if not scrape_uncovered else "no_uncovered_companies",
+            "companies_attempted": 0,
+            "jobs_found": 0,
+            "jobs_inserted": 0,
+            "results": [],
+        }
+
+        if scrape_uncovered and uncovered_objects:
+            ttl_skipped = [c for c in uncovered_objects if _is_within_ttl(c.last_success_at)]
+            work_queue = [c for c in uncovered_objects if not _is_within_ttl(c.last_success_at)]
+
+            db = SessionLocal()
+            try:
+                monthly_t1 = await _get_monthly_t1_count(db)
+                monthly_t2 = await _get_monthly_t2_count(db)
+            finally:
+                await db.close()
+
+            t1_soft_limit = int(settings.apify_monthly_cu_limit * 0.8)
+            t2_soft_limit = int(settings.browserbase_monthly_minutes_limit * 0.8)
+            t1_budget_ok = monthly_t1 < t1_soft_limit
+            t2_budget_ok = monthly_t2 < t2_soft_limit
+
+            batches = [work_queue[i:i + BATCH_SIZE] for i in range(0, len(work_queue), BATCH_SIZE)]
+            run_results: list[dict] = []
+            watchlist: list[str] = []
+            t1_quota_hit: bool = False
+
+            for batch_idx, batch in enumerate(batches):
+                log.info("orchestrator_gap.batch_start", batch=batch_idx + 1, of=len(batches), size=len(batch))
+                t1_candidates: list = []
+                t2_candidates: list = []
+
+                for company in batch:
+                    route = _resolve_route(company)
+                    if route == TIER_T3:
+                        watchlist.append(company.slug)
+                        run_results.append({
+                            "slug": company.slug, "display_name": company.display_name,
+                            "tier": TIER_T3, "outcome": OUTCOME_TERMINAL,
+                            "jobs_found": 0, "jobs_inserted": 0,
+                        })
+                    elif route == TIER_T2:
+                        t2_candidates.append(company)
+                    else:
+                        t1_candidates.append(company)
+
+                t2_escalations: list = []
+
+                if t1_candidates:
+                    if not t1_budget_ok:
+                        for company in t1_candidates:
+                            run_results.append({
+                                "slug": company.slug, "display_name": company.display_name,
+                                "tier": TIER_T1, "outcome": OUTCOME_SKIPPED,
+                                "jobs_found": 0, "jobs_inserted": 0,
+                            })
+                    else:
+                        for idx, company in enumerate(t1_candidates):
+                            if t1_quota_hit:
+                                run_results.append({
+                                    "slug": company.slug, "display_name": company.display_name,
+                                    "tier": TIER_T1, "outcome": OUTCOME_SKIPPED,
+                                    "jobs_found": 0, "jobs_inserted": 0,
+                                })
+                                continue
+
+                            res = await _run_t1_single(company, run_id)
+                            run_results.append(res)
+
+                            if res["outcome"] == OUTCOME_QUOTA_EXCEEDED:
+                                t1_quota_hit = True
+                                log.warning(
+                                    "orchestrator_gap.t1_quota_stop",
+                                    company=company.slug,
+                                    remaining=len(t1_candidates) - idx - 1,
+                                )
+                                continue
+
+                            if (
+                                _should_escalate_to_t2(res["outcome"])
+                                and res.get("is_spa", True)
+                                and t2_budget_ok
+                            ):
+                                t2_escalations.append(company)
+
+                            if idx < len(t1_candidates) - 1:
+                                await asyncio.sleep(T1_INTER_COMPANY_S)
+
+                all_t2 = t2_candidates + t2_escalations
+                if all_t2:
+                    if not t2_budget_ok:
+                        log.warning("orchestrator_gap.t2_budget_exhausted", deferred=len(all_t2))
+                        for company in all_t2:
+                            watchlist.append(company.slug)
+                            run_results.append({
+                                "slug": company.slug, "display_name": company.display_name,
+                                "tier": TIER_T3, "outcome": OUTCOME_SKIPPED,
+                                "jobs_found": 0, "jobs_inserted": 0,
+                            })
+                    else:
+                        for company in all_t2:
+                            res = await _run_t2_single(company, run_id)
+                            run_results.append(res)
+                            await asyncio.sleep(random.uniform(T2_JITTER_MIN_S, T2_JITTER_MAX_S))
+
+                log.info("orchestrator_gap.batch_done", batch=batch_idx + 1, results_so_far=len(run_results))
+
+                if batch_idx < len(batches) - 1:
+                    cooldown = random.uniform(COOLDOWN_MIN_S, COOLDOWN_MAX_S)
+                    log.info("orchestrator_gap.cooldown", seconds=round(cooldown, 1))
+                    await asyncio.sleep(cooldown)
+
+            _write_failed_md(run_results, all_companies, ttl_skipped, watchlist, run_id)
+
+            p_jobs_found = sum(r.get("jobs_found", 0) for r in run_results)
+            p_jobs_inserted = sum(r.get("jobs_inserted", 0) for r in run_results)
+            p_successes = sum(1 for r in run_results if r.get("outcome") == OUTCOME_SUCCESS)
+            total_attempted = len(run_results)
+            success_rate = (
+                round(p_successes / total_attempted * 100, 1)
+                if total_attempted > 0
+                else 0.0
+            )
+
+            targeted_stats = {
+                "status": "completed",
+                "companies_uncovered": len(uncovered_objects),
+                "companies_attempted": total_attempted,
+                "companies_ttl_skipped": len(ttl_skipped),
+                "companies_watchlist": len(watchlist),
+                "jobs_found": p_jobs_found,
+                "jobs_inserted": p_jobs_inserted,
+                "success_rate_pct": success_rate,
+                "results": run_results,
+                "watchlist": watchlist,
+            }
+
+        total_duration_ms = int((time.monotonic() - run_start) * 1000)
+
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "gap_analysis": {
+                "lookback_hours": hours,
+                "duration_ms": gap_duration_ms,
+                "stats": gap_result["stats"],
+                "covered_companies": gap_result["covered"],
+                "uncovered_companies": gap_result["uncovered"],
+                "db_scraped_company_names": gap_result["unique_scraped_companies"],
+            },
+            "targeted_scraping": targeted_stats,
+            "total_duration_ms": total_duration_ms,
+        }
+
+

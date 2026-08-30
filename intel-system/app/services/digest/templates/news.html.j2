@@ -121,12 +121,13 @@
          SECTIONS
     ══════════════════════════════════════ -->
     {% set section_labels = {
-      'news':        'Industry News',
-      'telegram':    'Telegram Highlights',
-      'whatsapp':    'WhatsApp Highlights',
-      'linkedin':    'LinkedIn Updates'
+      'news':                'Industry News',
+      'telegram':            'Telegram Highlights',
+      'whatsapp':            'WhatsApp Highlights',
+      'linkedin':            'LinkedIn Updates',
+      'linkedin_community':  'LinkedIn Community Updates'
     } %}
-    {% set display_order = ['news', 'telegram', 'whatsapp', 'linkedin'] %}
+    {% set display_order = ['news', 'telegram', 'whatsapp', 'linkedin', 'linkedin_community'] %}
 
     {% for sec_key in display_order %}
     {% if sec_key in sections %}

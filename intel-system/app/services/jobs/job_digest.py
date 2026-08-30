@@ -167,11 +167,22 @@ Example: {{"123": "Lead the development of high-power EV charging infrastructure
         if not content:
             return {}
         content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        if content.startswith("json"):
-            content = content[4:].strip()
-        result = json.loads(content)
+        
+        import re
+        # Attempt to extract JSON object from markdown block or raw text
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_match:
+            clean_content = json_match.group(1)
+        else:
+            # Fallback: find the first { and last }
+            json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+            clean_content = json_match.group(1) if json_match else content
+
+        clean_content = clean_content.strip()
+        if not clean_content:
+            return {}
+            
+        result = json.loads(clean_content)
         safe_result = {}
         for k, v in result.items():
             if isinstance(v, str):
@@ -181,7 +192,8 @@ Example: {{"123": "Lead the development of high-power EV charging infrastructure
                     pass
         return safe_result
     except Exception as exc:
-        log.error("jobs_digest.llm_summary_failed", error=str(exc))
+        raw = content if 'content' in locals() else ""
+        log.error("jobs_digest.llm_summary_failed", error=str(exc), raw_content=raw[:500])
         return {}
 
 

@@ -60,7 +60,20 @@ services:
       - .:/app
     restart: on-failure
 
+  whatsapp_service:
+    build:
+      context: ./whatsapp-service
+      dockerfile: Dockerfile
+    volumes:
+      - baileys_auth_info:/app/baileys_auth_info
+    environment:
+      # Use host.docker.internal because FastAPI usually runs natively
+      INGEST_URL: "http://host.docker.internal:8000/ingest/whatsapp"
+      INGEST_TOKEN: "intel_dev_secret" # Use environment variable in production
+    restart: unless-stopped
+
 volumes:
   pgdata: {}
   n8n_data: {}
   cd_data: {}
+  baileys_auth_info: {}

@@ -28,9 +28,7 @@ KEYWORDS: list[tuple[str, bool]] = [
     ("Lithium-ion", False),
     ("Giga Factory", False),
     
-    # Location
-    ("India", True),
-    ("Indian", True),
+    # Location keywords have been moved to LOCATION_KEYWORDS below
     
     # Major Indian EV Companies / Startups
     ("Tata Motors", False),
@@ -68,12 +66,49 @@ KEYWORDS: list[tuple[str, bool]] = [
     # News Sources to always pass
     ("Economic Times", False),
     ("economictimes", False),
+    ("autopunditz", False),
 ]
 
 LOCATION_KEYWORDS: list[str] = [
     "india",
     "indian",
+    "maharashtra",
+    "delhi",
+    "karnataka",
+    "tamil nadu",
+    "gujarat",
+    "telangana",
+    "haryana",
+    "uttar pradesh",
+    "kerala",
+    "punjab",
+    "rajasthan",
+    "west bengal",
+    "madhya pradesh",
+    "andhra pradesh",
+    "odisha",
+    "pune",
+    "bengaluru",
+    "bangalore",
+    "chennai",
+    "hyderabad",
+    "ncr",
+    "gurgaon",
+    "gurugram",
+    "noida",
 ]
+
+# Set of company names that inherently mean it's related to India
+INDIAN_COMPANIES: set[str] = {
+    "Tata Motors", "Tata Passenger Electric", "Mahindra", "Ola Electric",
+    "Ather Energy", "TVS Motor", "TVS iQube", "Bajaj Auto", "Bajaj Chetak",
+    "Hero Electric", "Vida", "Greaves", "Ampere", "Kinetic Green",
+    "Revolt Motors", "Oben Electric", "Simple Energy", "Tork Motors",
+    "Ultraviolette", "Yulu", "MG Motor", "BYD India", "Log9",
+    "Exponent Energy", "Gogoro", "Sun Mobility", "Bounce Infinity",
+    "Eicher Motors", "Ashok Leyland", "Olectra", "JBM Auto",
+    "Economic Times", "economictimes", "autopunditz"
+}
 
 _BOUNDARY_PATTERNS: dict[str, re.Pattern[str]] = {
     kw: re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE)
@@ -100,7 +135,21 @@ def passes_filter(text: str | None, url: str | None = None) -> tuple[bool, list[
     
     # Check industry keywords
     hits = matched_keywords(combined)
-    return bool(hits), hits
+    if not hits:
+        return False, []
+
+    # If it matched an explicitly Indian company or news source, pass it.
+    for hit in hits:
+        if hit in INDIAN_COMPANIES:
+            return True, hits
+
+    # Otherwise, it must explicitly mention an Indian location/state
+    combined_lower = combined.lower()
+    for loc in LOCATION_KEYWORDS:
+        if re.search(rf"\b{re.escape(loc)}\b", combined_lower):
+            return True, hits + [loc]
+
+    return False, []
 
 
 def filter_items(items: list[IngestItem]) -> tuple[list[IngestItem], int]:

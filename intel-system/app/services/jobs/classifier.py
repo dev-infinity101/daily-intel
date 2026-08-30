@@ -80,36 +80,7 @@ _REMOTE_ONLY = re.compile(
     re.I,
 )
 
-_TARGET_SENIORITY = re.compile(
-    r"\b("
-    r"chief|cbo|coo|cro|cgo|president|founder|co.?founder|vice\s+president|vp|svp|evp|avp|"
-    r"director|head|general\s+manager|gm|deputy\s+general\s+manager|deputy\s+manager|dgm|agm|"
-    r"assistant\s+general\s+manager|deputy|manager|lead"
-    r")\b",
-    re.I,
-)
 
-_HIGH_SENIORITY = re.compile(
-    r"\b("
-    r"chief|cbo|coo|cro|cgo|president|founder|co.?founder|vice\s+president|vp|svp|evp|avp|"
-    r"director|head|senior\s+manager|sr\.?\s+manager|general\s+manager|gm|"
-    r"deputy\s+general\s+manager|deputy\s+manager|dgm|agm|assistant\s+general\s+manager"
-    r")\b",
-    re.I,
-)
-
-_TARGET_FUNCTION = re.compile(
-    r"\b("
-    r"business|biz\s?dev|bd\b|sales|commercial|account|b2b|institutional|revenue|gtm|go.?to.?market|"
-    r"strategy|strategic|growth|p&l|profit\s+(?:&|and)\s+loss|expansion|"
-    r"operations?|operating|ops\b|fleet|charging|mobility|e.?mobility|ev|electric\s+vehicle|"
-    r"network|delivery|baas|swapping|partnerships?|alliances?|channel|dealer|ecosystem|"
-    r"projects?|programs?|product|category|supply\s+chain|procurement|customer\s+success|"
-    r"transformation|innovation|pmo|regional|"
-    r"solutions?|logistics|services?|electrification|enterprise|government|policy|marketing"
-    r")\b",
-    re.I,
-)
 
 _ENGINEERING_HEAVY_ROLES = re.compile(
     r"\b("
@@ -303,12 +274,7 @@ def is_india_relevant(location: str | None = None, description: str = "") -> boo
     return _location_status(location, description) == "india_match"
 
 
-def is_preferred_role(title: str, description: str = "") -> bool:
-    has_seniority = bool(_TARGET_SENIORITY.search(title))
-    has_function = bool(_TARGET_FUNCTION.search(title))
-    is_high_seniority = bool(_HIGH_SENIORITY.search(title))
-    is_standalone_sales = bool(re.search(r"\b(sales)\b", title, re.I))
-    return is_high_seniority or is_standalone_sales or (has_seniority and has_function)
+
 
 
 def is_engineering_heavy_role(title: str, description: str = "") -> bool:
@@ -383,18 +349,10 @@ def evaluate_job_filter(
         _log_filter_result(title, result, is_target)
         return result
 
-    preferred = is_preferred_role(title, description)
     engineering_heavy = is_engineering_heavy_role(title, description)
-    unrelated = bool(_UNRELATED_BUSINESS_ROLES.search(title))
 
     if engineering_heavy:
         role_status = "engineering_heavy_role"
-        passed = False
-    elif unrelated:
-        role_status = "unrelated_business_role"
-        passed = False
-    elif not preferred:
-        role_status = "not_target_business_role"
         passed = False
     else:
         role_status = "target_role"

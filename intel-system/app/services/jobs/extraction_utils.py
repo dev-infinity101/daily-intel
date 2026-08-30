@@ -110,6 +110,152 @@ def isolate_job_region(html: str) -> str:
     return html[best_start:best_start + REGION_WINDOW]
 
 
+class ExtractionError(RuntimeError):
+    """Raised when LLM extraction fails so callers can distinguish LLM errors from empty results."""
+
+
+def _parse_llm_json_safe(text: str) -> list:
+    """Parse LLM JSON with fallbacks for common model quirks."""
+    text = text.strip()
+    if not text or text in ("null", "{}", "[]"):
+        return []
+    try:
+        result = _json.loads(text)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            for key in ("jobs", "data", "results", "listings", "items", "positions"):
+                if isinstance(result.get(key), list):
+                    return result[key]
+        return []
+    except (ValueError, _json.JSONDecodeError):
+        pass
+    m = re.search(r'\[.*\]', text, re.DOTALL)
+    if m:
+        try:
+            return _json.loads(m.group())
+        except (ValueError, _json.JSONDecodeError):
+            pass
+    if re.search(r'\b(no\s+jobs?|0\s+jobs?|none\s+found|empty|nothing)\b', text, re.I):
+        return []
+    return []
+
+
+async def extract_jobs_from_diff(diff_html: str, source_url: str, company_slug: str = "") -> list[JobIn]:
+    """Send the page content to TensorMux/OpenRouter and extract structured job listings."""
+    from app.config import settings
+
+    if not settings.tensormux_api_key:
+        log.warning("extraction_utils.tensormux_key_missing")
+        return []
+
+    import asyncio
+    from openai import APIStatusError, AsyncOpenAI
+
+    client = AsyncOpenAI(
+        api_key=settings.tensormux_api_key,
+        base_url="https://api.tensormux.com/v1",
+        default_headers={
+            "HTTP-Referer": "https://daily-intel.app",
+            "X-Title": "Daily Intel",
+        },
+    )
+
+    prompt = f"""You are a job listing extractor. Extract ALL job listings from the careers page content below.
+
+Return ONLY a valid JSON array — no markdown, no explanation, no fences.
+Each element MUST have:
+  "job_title": string (exact full title as shown — preserve domain prefix like "EV", "Electric", "Charging", required)
+  "company": string (company name, required)
+  "location": string or null
+  "job_url": string or null (direct link to apply/view)
+  "description": string max 500 chars — include: role summary, key responsibilities,
+                 domain context (e.g. EV charging, fleet, electric vehicle, mobility software,
+                 EVSE, last mile, emobility), required technologies or sector keywords
+
+Rules:
+- Extract EVERY visible job regardless of department, domain, or seniority
+- Preserve domain keywords (EV, Electric Vehicle, Emobility, Charging, EVSE, Last Mile, Mobility) in the job_title exactly as they appear
+- Include domain and industry context in the description field
+- If the page has NO job listings at all, return []
+- Output raw JSON only — no markdown code fences
+
+Source URL: {source_url}
+Content:
+{diff_html}"""
+
+    last_exc: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            response = await call_llm_with_rate_limit(
+                client=client,
+                model=settings.tensormux_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=4096,
+                timeout=120.0,
+            )
+            if not response.choices:
+                log.warning("extraction_utils.empty_choices", url=source_url, attempt=attempt, model=settings.tensormux_model)
+                if attempt < 3:
+                    await asyncio.sleep(5 * attempt)
+                    continue
+                return []
+            content = response.choices[0].message.content
+            if not content or not content.strip():
+                log.warning("extraction_utils.null_content", url=source_url, attempt=attempt, model=settings.tensormux_model)
+                if attempt < 3:
+                    wait = 3 * attempt
+                    await asyncio.sleep(wait)
+                    continue
+                return []
+            text = content.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            raw_jobs = _parse_llm_json_safe(text)
+            source_type = f"direct_{company_slug}" if company_slug else "llm_extracted"
+            return [
+                JobIn(
+                    company=j.get("company") or source_url,
+                    job_title=j.get("job_title") or "Role",
+                    location=j.get("location"),
+                    job_url=j.get("job_url") or source_url,
+                    description=(j.get("description") or "")[:500],
+                    source_type=source_type,
+                )
+                for j in raw_jobs
+                if isinstance(j, dict)
+            ]
+        except APIStatusError as exc:
+            last_exc = exc
+            if exc.status_code in (429, 503) and attempt < 3:
+                wait = 5 * attempt
+                log.warning(
+                    "extraction_utils.tensormux_unavailable_retrying",
+                    url=source_url,
+                    attempt=attempt,
+                    wait_seconds=wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+            break
+        except Exception as exc:
+            last_exc = exc
+            break
+
+    log.exception(
+        "extraction_utils.extraction_failed",
+        url=source_url,
+        error=str(last_exc),
+        exc_info=last_exc,
+    )
+    raise ExtractionError(f"TensorMux extraction failed for {source_url}: {last_exc}") from last_exc
+
+
+# Alias
+extract_jobs_from_content = extract_jobs_from_diff
+
+
 # ── Layer 3: chunked LLM extraction ──────────────────────────────────────────
 
 async def extract_jobs_chunked(
@@ -120,10 +266,8 @@ async def extract_jobs_chunked(
     max_chunks: int = MAX_CHUNKS,
 ) -> list[JobIn]:
     """Split content into windows and extract jobs from each, then merge+dedup."""
-    from app.services.jobs.changedetection import extract_jobs_from_diff
-
     if len(content) <= chunk_size:
-        return await extract_jobs_from_diff(content, source_url)
+        return await extract_jobs_from_diff(content, source_url, company_slug=company_slug)
 
     chunks = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)][:max_chunks]
     log.info(
@@ -138,7 +282,7 @@ async def extract_jobs_chunked(
 
     for idx, chunk in enumerate(chunks):
         try:
-            chunk_jobs = await extract_jobs_from_diff(chunk, source_url)
+            chunk_jobs = await extract_jobs_from_diff(chunk, source_url, company_slug=company_slug)
             new_count = 0
             for j in chunk_jobs:
                 key = f"{(j.job_title or '').lower().strip()}|{(j.job_url or '').strip()}"

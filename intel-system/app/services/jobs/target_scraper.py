@@ -185,7 +185,7 @@ async def fetch_career_page(url: str, company_slug: str, debug: bool = False) ->
     if debug:
         print(f"\n  [DEBUG] CONTENT SENT TO OPENROUTER (first 1000 chars):\n{text[:1000]}\n  ---")
 
-    from app.services.jobs.changedetection import extract_jobs_from_diff
+    from app.services.jobs.extraction_utils import extract_jobs_from_diff
 
     jobs = await extract_jobs_from_diff(text[:12000], url)
 
@@ -270,7 +270,7 @@ async def fetch_career_page_paginated(
                 if debug:
                     print(f"  [DEBUG PAGE {page_num}] CONTENT (first 1000 chars):\n{text[:1000]}\n  ---")
 
-                from app.services.jobs.changedetection import extract_jobs_from_diff
+                from app.services.jobs.extraction_utils import extract_jobs_from_diff
 
                 page_jobs = await extract_jobs_from_diff(text[:12000], current_url)
                 new_count = 0

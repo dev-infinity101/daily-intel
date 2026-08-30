@@ -22,12 +22,12 @@ log = structlog.get_logger()
 # e.g. 12000 chars is ~2500 words.
 CHUNK_SIZE_CHARS = 12000
 
-_SYSTEM_PROMPT = """You are an AI assistant for a daily intelligence system focused on the Electric Vehicle (EV) and Mobility industry in India.
+_SYSTEM_PROMPT = """You are an AI assistant for a daily intelligence system focused EXCLUSIVELY on the Electric Vehicle (EV) and Mobility industry in India.
 Your task is to summarize the provided news article text and rate its relevance.
 
-CRITICAL REJECTION RULES (Score 0.0 if any match):
-1. JOB POSTINGS: If the text is a job description, hiring ad, or recruitment post, reject it immediately. This is the NEWS module, not the jobs module.
-2. EXPLICITLY FOREIGN LOCAL NEWS: Reject news that is strictly about local foreign policies or local foreign events (e.g., "California mandates X", "UK city builds chargers"). However, ACCEPT general global industry trends, major global company news (e.g., Tesla updates), and anything mentioning India.
+CRITICAL REJECTION RULES (Score 0.0 if ANY match):
+1. JOB POSTINGS: If the text is a job description, hiring ad, or recruitment post, reject it immediately.
+2. NON-INDIA / GLOBAL NEWS: Reject ALL news that does not directly involve the Indian market, Indian companies, or policies directly impacting India. Reject general global industry trends and major global company news (e.g., Tesla US updates, European charging networks) unless there is a concrete, explicit tie to India.
 
 Return ONLY a JSON object with this exact structure:
 {
@@ -40,9 +40,48 @@ Return ONLY a JSON object with this exact structure:
 
 - `headline`: A short, punchy standalone headline. Do NOT end with an ellipsis or write it in a way that reads as a sentence continuing into the description.
 - `summary`: A rich, mid-length news description. Do NOT just say "This is an article about X". State the actual facts, numbers, companies, and key details.
-- `relevance_score`: Float 0.0 to 1.0. (1.0 = highly relevant EV news in India, 0.0 = job post, non-India, or spam).
+- `relevance_score`: Float 0.0 to 1.0. (1.0 = highly relevant EV news IN INDIA, 0.0 = job post, non-India, global news without Indian impact, or spam).
 - `category`: Must be one of: "Industry News", "Market Trends", "Technology & Innovation", "Policy & Regulation", "Other".
 - `tags`: Array of 3-5 string keywords, entities, locations, or themes to be used for future semantic vector searches and personalization.
+"""
+
+_TWITTER_PROMPT = """You are an AI assistant for a daily intelligence system.
+Your task is to summarize the provided text from a curated Twitter/X account.
+Do not reject any content, as these sources are explicitly tracked. 
+Just summarize the content as news and return a relevance score of 1.0.
+
+Return ONLY a JSON object with this exact structure:
+{
+    "headline": "Short, punchy standalone headline (max 10 words).",
+    "summary": "A mid-length, highly informative summary (3-4 sentences) retaining all main details, facts, numbers, and context.",
+    "relevance_score": 1.0, 
+    "category": "Industry News",
+    "tags": ["Tag1", "Tag2"]
+}
+"""
+
+_LINKEDIN_COMMUNITY_PROMPT = """You are an AI assistant for a daily intelligence system focused on the Electric Vehicle (EV) and Mobility industry.
+Your task is to summarize the provided LinkedIn community post and rate its relevance for an EV-industry audience.
+
+IMPORTANT: Do NOT reject any content. Every post must be summarized and scored.
+Score higher-relevance posts closer to 1.0 (directly about EV, charging, mobility, policy, startups in India)
+and lower-relevance posts closer to 0.3 (tangentially related or general business).
+Never assign a score below 0.3.
+
+Return ONLY a JSON object with this exact structure:
+{
+    "headline": "Short, punchy standalone headline (max 10 words).",
+    "summary": "A mid-length, highly informative summary (3-4 sentences) retaining all main details, facts, numbers, and context.",
+    "relevance_score": 0.85,
+    "category": "Community Update",
+    "tags": ["Tag1", "Tag2", "Tag3"]
+}
+
+- `headline`: A short, punchy standalone headline. Do NOT end with an ellipsis.
+- `summary`: A rich, mid-length description. State the actual facts, opinions, announcements, and key details shared in the post.
+- `relevance_score`: Float 0.3 to 1.0 for ranking purposes (all posts are kept regardless of score).
+- `category`: Must be one of: "Community Update", "Industry News", "Opinion & Thought Leadership", "Announcement", "Other".
+- `tags`: Array of 3-5 string keywords, entities, locations, or themes.
 """
 
 def _parse_dict_safe(text: str) -> dict[str, Any] | None:
@@ -71,13 +110,13 @@ def _parse_dict_safe(text: str) -> dict[str, Any] | None:
                 pass
     return None
 
-async def _process_chunk_with_llm(text_chunk: str, client: AsyncOpenAI) -> dict[str, Any] | None:
+async def _process_chunk_with_llm(text_chunk: str, client: AsyncOpenAI, prompt: str = _SYSTEM_PROMPT) -> dict[str, Any] | None:
     try:
         response = await call_llm_with_rate_limit(
             client=client,
             model=settings.tensormux_model,
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": f"Please summarize and score this text:\n\n{text_chunk[:CHUNK_SIZE_CHARS]}"}
             ],
             temperature=0.3,
@@ -93,10 +132,10 @@ async def _process_chunk_with_llm(text_chunk: str, client: AsyncOpenAI) -> dict[
         log.error("news_pipeline.llm_chunk_error", error=str(exc))
         return None
 
-async def _process_text_with_llm(text: str, client: AsyncOpenAI) -> dict[str, Any] | None:
+async def _process_text_with_llm(text: str, client: AsyncOpenAI, prompt: str = _SYSTEM_PROMPT) -> dict[str, Any] | None:
     """Process text. If too large, chunk it, summarize chunks, and combine."""
     if len(text) <= CHUNK_SIZE_CHARS:
-        return await _process_chunk_with_llm(text, client)
+        return await _process_chunk_with_llm(text, client, prompt)
 
     # Chunking logic
     log.info("news_pipeline.chunking_text", total_length=len(text))
@@ -104,7 +143,7 @@ async def _process_text_with_llm(text: str, client: AsyncOpenAI) -> dict[str, An
     
     intermediate_summaries = []
     for chunk in chunks:
-        res = await _process_chunk_with_llm(chunk, client)
+        res = await _process_chunk_with_llm(chunk, client, prompt)
         if res and "summary" in res:
             intermediate_summaries.append(res["summary"])
             
@@ -115,7 +154,7 @@ async def _process_text_with_llm(text: str, client: AsyncOpenAI) -> dict[str, An
     log.info("news_pipeline.processing_combined_chunks", combined_length=len(combined_text))
     
     # Final pass over the combined summaries
-    return await _process_chunk_with_llm(combined_text, client)
+    return await _process_chunk_with_llm(combined_text, client, prompt)
 
 
 async def process_unprocessed_news() -> dict[str, Any]:
@@ -142,7 +181,7 @@ async def process_unprocessed_news() -> dict[str, Any]:
                     select(RawItem.id, RawItem.text, RawItem.external_id, Source.type)
                     .join(Source, RawItem.source_id == Source.id)
                     .outerjoin(ProcessedItem, ProcessedItem.raw_item_id == RawItem.id)
-                    .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site"]))
+                    .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site", "linkedin_community"]))
                     .where(ProcessedItem.id.is_(None))
                     .limit(50) # Process in batches to avoid overwhelming LLM/time limits
                 )
@@ -158,7 +197,7 @@ async def process_unprocessed_news() -> dict[str, Any]:
                     select(func.count(RawItem.id))
                     .join(Source, RawItem.source_id == Source.id)
                     .outerjoin(ProcessedItem, ProcessedItem.raw_item_id == RawItem.id)
-                    .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site"]))
+                    .where(Source.type.in_(["rss_global", "twitter", "linkedin_news", "custom_site", "linkedin_community"]))
                     .where(ProcessedItem.id.is_(None))
                 )
                 left_to_process = (await db.execute(count_stmt)).scalar() or 0
@@ -187,7 +226,12 @@ async def process_unprocessed_news() -> dict[str, Any]:
                         continue
 
                     log.info("news_pipeline.sends_to_ai", external_id=external_id)
-                    llm_result = await _process_text_with_llm(text_to_process, client)
+                    if source_type == "twitter":
+                        llm_result = await _process_text_with_llm(text_to_process, client, prompt=_TWITTER_PROMPT)
+                    elif source_type == "linkedin_community":
+                        llm_result = await _process_text_with_llm(text_to_process, client, prompt=_LINKEDIN_COMMUNITY_PROMPT)
+                    else:
+                        llm_result = await _process_text_with_llm(text_to_process, client)
                     
                     if not llm_result:
                         failed_count += 1
@@ -211,8 +255,17 @@ async def process_unprocessed_news() -> dict[str, Any]:
                         relevance = 0.0
                     
                     # Map section based on source type
-                    section = "linkedin" if source_type == "linkedin_news" else "news"
-                    passed_filter = relevance >= 0.4  # Lowered threshold to allow more news through
+                    if source_type == "linkedin_community":
+                        section = "linkedin_community"
+                    elif source_type == "linkedin_news":
+                        section = "linkedin"
+                    else:
+                        section = "news"
+
+                    if source_type in ("twitter", "linkedin_community"):
+                        passed_filter = True  # Never reject these curated sources
+                    else:
+                        passed_filter = relevance >= 0.4  # Lowered threshold to allow more news through
 
                     log.info("news_pipeline.final_filter", relevance_score=relevance, passed=passed_filter)
 

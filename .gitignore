@@ -23,6 +23,10 @@ Thumbs.db
 *.env
 **/intel-system/.env
 **/adzuna/.env
+baileys_auth_info/
+**/baileys_auth_info/
+*custom_site_raw.json
+*custom_site_result.txt
 
 # --- Python & Cache Files ---
 __pycache__/

@@ -117,7 +117,7 @@ async def _trigger_actor(actor_id: str, run_input: dict) -> tuple[str, str]:
                 return r.json()["data"]["id"], token
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
-                if status in (402, 429):
+                if status in (401, 402, 403, 429):
                     if attempt < len(tokens_to_try) - 1:
                         log.warning("apify.primary_quota_hit_retrying_secondary", status=status)
                         continue
@@ -320,7 +320,7 @@ async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str,
     # V3 extraction pipeline — no 12K cap
     jobs = await extract_jobs_from_html(combined, career_url, company_slug)
     for j in jobs:
-        if j.source_type in ("changedetection", "unknown"):
+        if not j.source_type or j.source_type in ("changedetection", "llm_extracted", "unknown", f"direct_{company_slug}"):
             j.source_type = f"apify_{company_slug}"
     return jobs
 
@@ -343,7 +343,7 @@ async def poll_actor(actor_id: str, company_slug: str, run_input: dict) -> list[
         actor=actor_id,
     )
 
-    from app.services.jobs.changedetection import ExtractionError
+    from app.services.jobs.extraction_utils import ExtractionError
 
     if _is_crawler_output(raw_items):
         career_url = (run_input.get("startUrls") or [{}])[0].get("url", "")

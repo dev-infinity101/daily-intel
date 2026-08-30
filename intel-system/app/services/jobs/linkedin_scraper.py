@@ -252,7 +252,7 @@ async def _fetch_via_guest_api_paginated(
             if not cards and page_idx == 0:
                 # HTML structure may have changed — Gemini fallback for page 1 only
                 log.info("linkedin.direct_parse_empty_fallback_llm", keyword=keyword)
-                from app.services.jobs.changedetection import extract_jobs_from_diff
+                from app.services.jobs.extraction_utils import extract_jobs_from_diff
                 source_url = (
                     f"https://www.linkedin.com/jobs/search/"
                     f"?keywords={keyword}&location={location}"

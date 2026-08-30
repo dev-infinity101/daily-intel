@@ -135,6 +135,40 @@ async def scrape_linkedin_now() -> dict[str, object]:
     return stats
 
 
+@router.post("/jobs/gap-analyzer")
+@router.get("/jobs/gap-analyzer")
+async def gap_analyzer_now(
+    hours: int = Query(
+        default=48,
+        description="Lookback window in hours to match company names against existing jobs in DB (default 48h)",
+    ),
+    scrape_uncovered: bool = Query(
+        default=True,
+        description="Trigger T1/T2 scraping for target companies not found in DB within lookback window",
+    ),
+) -> dict[str, object]:
+    """Trigger Gap Analysis against jobs already present in the database.
+
+    Flow:
+      1. Matches active TargetCompany records against distinct company names from
+         jobs ingested in the last `hours` (default 48h).
+      2. Identifies covered vs uncovered companies using Deterministic + LLM passes.
+      3. If `scrape_uncovered` is True, executes T1 Apify → T2 Browserbase only for
+         the uncovered target companies.
+
+    Does NOT execute broad scrapers (LinkedIn/Adzuna), saving credits.
+    Leaves `/jobs/scrape-now` intact.
+    """
+    from app.services.jobs.scrape_orchestrator import orchestrate_gap_scrape
+
+    stats = await orchestrate_gap_scrape(
+        hours=hours,
+        scrape_uncovered=scrape_uncovered,
+        is_manual=True,
+    )
+    return stats
+
+
 @router.get("/jobs/metrics")
 async def jobs_metrics(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
     """V3 run metrics — coverage, tier breakdown, budget usage, watchlist.

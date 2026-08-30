@@ -36,3 +36,11 @@ async def ingest(
         body = IngestRequest(source_identifier=body.source_identifier, items=filtered)
 
     return await ingest_items(db, source_type=x_source_type, request=body)
+
+@router.post("/whatsapp", response_model=IngestResponse, dependencies=[Depends(_verify_token)])
+async def ingest_whatsapp(
+    body: IngestRequest,
+    db: AsyncSession = Depends(get_db),
+) -> IngestResponse:
+    # WhatsApp messages bypass the news keyword filter since they come from pre-vetted groups
+    return await ingest_items(db, source_type="whatsapp_group", request=body)

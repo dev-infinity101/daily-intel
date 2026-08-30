@@ -128,7 +128,7 @@ async def poll_linkedin_jobs_apify() -> list[JobIn]:
         "urls": [
             "https://www.linkedin.com/jobs/search?keywords=EV%20jobs%20&location=India&geoId=&position=1&pageNum=0"
         ],
-        "count": 50,
+        "count": 100,
         "splitByLocation": False,
         "scrapeCompany": False,
     }

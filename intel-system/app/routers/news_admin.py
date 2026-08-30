@@ -1,7 +1,7 @@
 """News module router.
 
-Two prefix groups:
-  /ingest/news/*   — webhook receivers (changedetection.io)
+Endpoints:
+  /ingest/news/*   — webhook receivers (n8n RSS)
   /admin/news/*    — management endpoints (custom sites, keywords, manual triggers)
 """
 import re
@@ -27,54 +27,7 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
-# ── Module 2: changedetection.io webhook ──────────────────────────────────────
-
-class CDWebhookPayload(BaseModel):
-    watch_url: str
-    title: str | None = None
-    diff: str | None = None
-    uuid: str | None = None
-
-
-@router.post("/ingest/news/changedetection")
-async def changedetection_webhook(payload: CDWebhookPayload) -> dict:
-    """Receive change notifications from changedetection.io for custom sites."""
-    raw_text = _strip_html(payload.diff or "")
-    if not raw_text.strip():
-        return {"status": "ignored", "reason": "empty_diff"}
-
-    ok, hits = passes_filter(raw_text, payload.watch_url)
-    if not ok:
-        log.info("news.cd_keyword_miss", url=payload.watch_url)
-        return {"status": "filtered", "reason": "no_keyword_match"}
-
-    item = IngestItem(
-        external_id=payload.uuid,
-        occurred_at=datetime.now(timezone.utc),
-        url=payload.watch_url,
-        text=raw_text[:4000],
-        payload=payload.model_dump(),
-    )
-    db = SessionLocal()
-    try:
-        result = await ingest_items(
-            db,
-            source_type="custom_site",
-            request=IngestRequest(
-                source_identifier=payload.watch_url,
-                items=[item],
-            ),
-        )
-        log.info("news.cd_ingested", url=payload.watch_url,
-                 accepted=result.accepted, matched=hits)
-        return {
-            "status": "ok",
-            "accepted": result.accepted,
-            "duplicates": result.duplicates,
-            "matched_keywords": hits,
-        }
-    finally:
-        await db.close()
+# ── Module 2: Apify Custom Sites Scraper (Webhook removed, see tasks.py) ─────
 
 
 # ── Module 1: n8n RSS webhook ─────────────────────────────────────────────────
@@ -125,33 +78,7 @@ async def n8n_webhook(payload: N8nWebhookPayload) -> dict:
         await db.close()
 
 
-# ── Module 2: custom site management ─────────────────────────────────────────
-
-class CustomSiteIn(BaseModel):
-    url: str
-    display_name: str
-
-
-@router.post("/admin/news/custom-sites")
-async def add_custom_site(body: CustomSiteIn) -> dict:
-    """Register a URL in changedetection.io. Webhooks back on page change."""
-    from app.services.news.custom_site import register_watch
-    result = await register_watch(body.url, body.display_name)
-    return {"status": "registered", "result": result}
-
-
-@router.get("/admin/news/custom-sites")
-async def list_custom_sites() -> dict:
-    from app.services.news.custom_site import list_watches
-    watches = await list_watches()
-    return {"count": len(watches), "watches": watches}
-
-
-@router.delete("/admin/news/custom-sites/{uuid}")
-async def remove_custom_site(uuid: str) -> dict:
-    from app.services.news.custom_site import delete_watch
-    await delete_watch(uuid)
-    return {"status": "deleted", "uuid": uuid}
+# (Dynamic custom site management endpoints have been removed. Sites are currently hardcoded in custom_site.py)
 
 
 # ── Keyword inspection ────────────────────────────────────────────────────────
@@ -176,6 +103,12 @@ async def test_keyword_filter(body: KeywordTestIn) -> dict:
 
 # ── Manual triggers ───────────────────────────────────────────────────────────
 
+@router.post("/admin/news/custom-sites/trigger-now")
+async def trigger_custom_sites_now() -> dict:
+    """Immediately trigger the Apify custom sites scrape (Module 2)."""
+    from app.services.news.custom_site import poll_custom_sites
+    return await poll_custom_sites()
+
 @router.post("/admin/news/rss/trigger-now")
 async def trigger_rss_now() -> dict:
     """Immediately poll all RSS feeds (Module 1)."""
@@ -197,6 +130,30 @@ async def trigger_linkedin_now() -> dict:
     return await poll_linkedin()
 
 
+@router.post("/admin/news/linkedin-posts")
+async def trigger_linkedin_community() -> dict:
+    """Scrape LinkedIn community posts, process with LLM, and return results.
+
+    Full pipeline:
+      1. Apify actor scrapes EV-domain LinkedIn posts (Module 3c)
+      2. All posts ingested (no keyword filtering)
+      3. LLM summarises and ranks every post (no rejection)
+    """
+    from app.services.news.linkedin_community import poll_linkedin_community
+    from app.services.news.news_pipeline import process_unprocessed_news
+
+    scrape_result = await poll_linkedin_community()
+    if scrape_result.get("status") != "ok":
+        return {"step": "scrape", **scrape_result}
+
+    llm_result = await process_unprocessed_news()
+    return {
+        "status": "ok",
+        "scrape": scrape_result,
+        "llm_processing": llm_result,
+    }
+
+
 @router.post("/admin/news/process-now")
 async def process_news_now() -> dict:
     """Immediately process unprocessed raw news items with the LLM pipeline."""
@@ -216,7 +173,7 @@ async def news_status() -> dict:
             SELECT s.type, COUNT(r.id) AS item_count
             FROM raw_items r
             JOIN sources s ON s.id = r.source_id
-            WHERE s.type IN ('rss_global', 'custom_site', 'twitter', 'linkedin_news')
+            WHERE s.type IN ('rss_global', 'custom_site', 'twitter', 'linkedin_news', 'linkedin_community')
               AND r.ingested_at >= NOW() - INTERVAL '24 hours'
             GROUP BY s.type
             ORDER BY s.type
@@ -225,9 +182,10 @@ async def news_status() -> dict:
             "last_24h": {row[0]: row[1] for row in rows},
             "modules": {
                 "rss_global": "Module 1 — global RSS feeds",
-                "custom_site": "Module 2 — changedetection.io custom sites",
+                "custom_site": "Module 2 — Apify website-content-crawler (Autopunditz)",
                 "twitter": "Module 3 — Apify Twitter handle scrape (@TheStreet)",
                 "linkedin_news": "Module 3b — Apify LinkedIn hashtag search (#EV #charging #Mobility)",
+                "linkedin_community": "Module 3c — Apify LinkedIn community posts (#EV India)",
             },
         }
     finally:

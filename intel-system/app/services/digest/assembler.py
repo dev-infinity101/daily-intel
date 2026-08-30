@@ -39,7 +39,7 @@ async def fetch_news_items(
     conditions = [
         ProcessedItem.is_relevant == True,  # noqa: E712
         ProcessedItem.processed_at >= cutoff,
-        ProcessedItem.section.in_(["news", "telegram", "whatsapp", "linkedin"]),
+        ProcessedItem.section.in_(["news", "telegram", "whatsapp", "linkedin", "linkedin_community"]),
     ]
     if section:
         conditions.append(ProcessedItem.section == section)

@@ -268,6 +268,27 @@ async def twitter_poll_job() -> None:
 
 @scheduler.scheduled_job(
     "cron",
+    day_of_week="wed",
+    hour=4,
+    minute=30,
+    timezone="Asia/Kolkata",
+    id="custom_sites_poll",
+    max_instances=1,
+    misfire_grace_time=300,
+)
+async def custom_sites_poll_job() -> None:
+    """Run Apify website-content-crawler for hardcoded custom sites once a week on Wednesday at 04:30 AM IST."""
+    from app.services.news.custom_site import poll_custom_sites
+
+    try:
+        result = await poll_custom_sites()
+        log.info("custom_sites_poll.done", **result)
+    except Exception:
+        log.exception("custom_sites_poll.failed")
+
+
+@scheduler.scheduled_job(
+    "cron",
     hour=4,
     minute=0,
     timezone="Asia/Kolkata",

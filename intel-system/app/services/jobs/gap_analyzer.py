@@ -1,8 +1,8 @@
 """Gap analyzer — determines which target companies lack coverage.
 
-After LinkedIn Jobs Apify and Adzuna have scraped, this module analyses
-the collected JobIn results to identify which target companies received
-NO jobs at all. Companies that received jobs (even if those jobs were
+After LinkedIn Jobs Apify, Adzuna, or recent DB job ingestion, this module
+analyses the collected JobIn results to identify which target companies
+received NO jobs at all. Companies that received jobs (even if those jobs were
 subsequently filtered out by the classifier) are considered "covered".
 
 The matching uses a two-pass strategy:
@@ -14,6 +14,7 @@ scraping pipeline.
 """
 import json
 import re
+from typing import Any
 
 import structlog
 
@@ -33,57 +34,60 @@ def _slugify(name: str) -> str:
 def _match_companies_deterministic(
     scraped_names: set[str],
     target_companies: list,
-) -> set[int]:
+) -> dict[int, str]:
     """Fast deterministic matching: slug normalisation + substring.
 
-    Returns set of target company IDs that matched.
+    Returns dict mapping target company ID -> matched scraped company name.
     """
-    matched_ids: set[int] = set()
+    matched: dict[int, str] = {}
 
-    # Build normalised lookup sets
-    scraped_slugs = {_slugify(n) for n in scraped_names}
-    scraped_lower = {n.lower().strip() for n in scraped_names}
+    # Build normalised lookup sets and map back to original scraped names
+    scraped_slug_map = {_slugify(n): n for n in scraped_names if n}
+    scraped_lower_map = {n.lower().strip(): n for n in scraped_names if n}
 
     for company in target_companies:
         display_slug = _slugify(company.display_name)
         db_slug = (company.slug or "").lower().replace("-", " ")
 
         # Exact slug match
-        if display_slug in scraped_slugs or db_slug in scraped_slugs:
-            matched_ids.add(company.id)
+        if display_slug in scraped_slug_map:
+            matched[company.id] = scraped_slug_map[display_slug]
+            continue
+        if db_slug in scraped_slug_map:
+            matched[company.id] = scraped_slug_map[db_slug]
             continue
 
         # Substring match: target name appears in any scraped name or vice versa
-        for scraped_name in scraped_lower:
+        for s_lower, orig_name in scraped_lower_map.items():
             if (
-                display_slug in scraped_name
-                or scraped_name in display_slug
-                or db_slug in scraped_name
-                or scraped_name in db_slug
+                display_slug in s_lower
+                or s_lower in display_slug
+                or db_slug in s_lower
+                or s_lower in db_slug
             ):
-                matched_ids.add(company.id)
+                matched[company.id] = orig_name
                 break
 
-    return matched_ids
+    return matched
 
 
 async def _match_companies_llm(
     scraped_names: list[str],
     unmatched_targets: list,
-) -> set[int]:
+) -> dict[int, str]:
     """Use LLM to fuzzy-match remaining unmatched target companies.
 
     Single batched call — maps each unmatched target to the closest scraped
     company name, or null if no reasonable match exists.
 
-    Returns set of target company IDs that the LLM matched.
+    Returns dict mapping target company ID -> matched scraped company name.
     """
     if not unmatched_targets or not scraped_names:
-        return set()
+        return {}
 
     if not settings.tensormux_api_key:
         log.warning("gap_analyzer.llm_disabled", reason="No tensormux_api_key")
-        return set()
+        return {}
 
     target_list = [
         {"id": c.id, "name": c.display_name}
@@ -123,7 +127,7 @@ Return ONLY the JSON array, no markdown fences or explanation."""
         },
     )
 
-    matched_ids: set[int] = set()
+    matched: dict[int, str] = {}
 
     try:
         response = await call_llm_with_rate_limit(
@@ -141,17 +145,181 @@ Return ONLY the JSON array, no markdown fences or explanation."""
         if isinstance(results, list):
             for i, result in enumerate(results):
                 if i < len(target_list) and result.get("matched_scraped"):
-                    matched_ids.add(target_list[i]["id"])
+                    matched_name = str(result["matched_scraped"])
+                    target_id = target_list[i]["id"]
+                    matched[target_id] = matched_name
                     log.info(
                         "gap_analyzer.llm_match",
                         target=target_list[i]["name"],
-                        matched=result["matched_scraped"],
+                        matched=matched_name,
                     )
 
     except Exception as exc:
         log.warning("gap_analyzer.llm_match_failed", error=str(exc))
 
-    return matched_ids
+    return matched
+
+
+async def analyze_coverage_detailed(
+    scraped_jobs: list[JobIn],
+    target_companies: list,
+) -> dict[str, Any]:
+    """Detailed coverage analysis returning structured diagnostics and metadata.
+
+    Returns:
+        {
+            "covered": [
+                {
+                    "id": int,
+                    "slug": str,
+                    "display_name": str,
+                    "matched_via": "deterministic" | "llm",
+                    "matched_scraped_name": str,
+                }
+            ],
+            "uncovered": [
+                {
+                    "id": int,
+                    "slug": str,
+                    "display_name": str,
+                    "priority": int,
+                    "preferred_scraper": str | None,
+                    "last_success_at": str | None,
+                }
+            ],
+            "uncovered_objects": list[TargetCompany],
+            "stats": {
+                "total_targets": int,
+                "covered_count": int,
+                "uncovered_count": int,
+                "deterministic_matches": int,
+                "llm_matches": int,
+                "coverage_pct": float,
+                "scraped_jobs_count": int,
+                "unique_scraped_companies_count": int,
+            },
+            "unique_scraped_companies": list[str],
+        }
+    """
+    if not target_companies:
+        return {
+            "covered": [],
+            "uncovered": [],
+            "uncovered_objects": [],
+            "stats": {
+                "total_targets": 0,
+                "covered_count": 0,
+                "uncovered_count": 0,
+                "deterministic_matches": 0,
+                "llm_matches": 0,
+                "coverage_pct": 0.0,
+                "scraped_jobs_count": 0,
+                "unique_scraped_companies_count": 0,
+            },
+            "unique_scraped_companies": [],
+        }
+
+    scraped_names: set[str] = {j.company.strip() for j in scraped_jobs if j.company and j.company.strip()}
+
+    if not scraped_names:
+        uncovered_info = [
+            {
+                "id": c.id,
+                "slug": c.slug,
+                "display_name": c.display_name,
+                "priority": c.priority,
+                "preferred_scraper": c.preferred_scraper,
+                "last_success_at": str(c.last_success_at) if c.last_success_at else None,
+            }
+            for c in target_companies
+        ]
+        return {
+            "covered": [],
+            "uncovered": uncovered_info,
+            "uncovered_objects": list(target_companies),
+            "stats": {
+                "total_targets": len(target_companies),
+                "covered_count": 0,
+                "uncovered_count": len(target_companies),
+                "deterministic_matches": 0,
+                "llm_matches": 0,
+                "coverage_pct": 0.0,
+                "scraped_jobs_count": len(scraped_jobs),
+                "unique_scraped_companies_count": 0,
+            },
+            "unique_scraped_companies": [],
+        }
+
+    # Pass 1: Deterministic
+    det_matched = _match_companies_deterministic(scraped_names, target_companies)
+    log.info("gap_analyzer.deterministic_pass", matched=len(det_matched))
+
+    # Pass 2: LLM
+    unmatched_for_llm = [c for c in target_companies if c.id not in det_matched]
+    llm_matched: dict[int, str] = {}
+    if unmatched_for_llm and scraped_names:
+        llm_matched = await _match_companies_llm(list(scraped_names), unmatched_for_llm)
+        log.info("gap_analyzer.llm_pass", additional_matched=len(llm_matched))
+
+    # Build covered & uncovered structures
+    company_by_id = {c.id: c for c in target_companies}
+    covered: list[dict[str, Any]] = []
+
+    for cid, matched_name in det_matched.items():
+        comp = company_by_id[cid]
+        covered.append({
+            "id": comp.id,
+            "slug": comp.slug,
+            "display_name": comp.display_name,
+            "matched_via": "deterministic",
+            "matched_scraped_name": matched_name,
+        })
+
+    for cid, matched_name in llm_matched.items():
+        comp = company_by_id[cid]
+        covered.append({
+            "id": comp.id,
+            "slug": comp.slug,
+            "display_name": comp.display_name,
+            "matched_via": "llm",
+            "matched_scraped_name": matched_name,
+        })
+
+    all_matched_ids = set(det_matched.keys()) | set(llm_matched.keys())
+    uncovered_objects = [c for c in target_companies if c.id not in all_matched_ids]
+
+    uncovered: list[dict[str, Any]] = [
+        {
+            "id": c.id,
+            "slug": c.slug,
+            "display_name": c.display_name,
+            "priority": c.priority,
+            "preferred_scraper": c.preferred_scraper,
+            "last_success_at": str(c.last_success_at) if c.last_success_at else None,
+        }
+        for c in uncovered_objects
+    ]
+
+    total = len(target_companies)
+    covered_cnt = len(covered)
+    coverage_pct = round((covered_cnt / total) * 100, 1) if total > 0 else 0.0
+
+    return {
+        "covered": covered,
+        "uncovered": uncovered,
+        "uncovered_objects": uncovered_objects,
+        "stats": {
+            "total_targets": total,
+            "covered_count": covered_cnt,
+            "uncovered_count": len(uncovered),
+            "deterministic_matches": len(det_matched),
+            "llm_matches": len(llm_matched),
+            "coverage_pct": coverage_pct,
+            "scraped_jobs_count": len(scraped_jobs),
+            "unique_scraped_companies_count": len(scraped_names),
+        },
+        "unique_scraped_companies": sorted(list(scraped_names)),
+    }
 
 
 async def analyze_coverage(
@@ -172,43 +340,15 @@ async def analyze_coverage(
     Returns:
         List of uncovered TargetCompany objects that need T1→T2 scraping.
     """
-    if not target_companies:
-        return []
-
-    if not scraped_jobs:
-        log.info("gap_analyzer.no_scraped_jobs", uncovered=len(target_companies))
-        return list(target_companies)
-
-    # Collect all unique company names from scraped results
-    scraped_names: set[str] = {j.company for j in scraped_jobs if j.company}
-    log.info(
-        "gap_analyzer.start",
-        scraped_companies=len(scraped_names),
-        target_companies=len(target_companies),
-    )
-
-    # Pass 1: Deterministic matching
-    matched_ids = _match_companies_deterministic(scraped_names, target_companies)
-    log.info("gap_analyzer.deterministic_pass", matched=len(matched_ids))
-
-    # Pass 2: LLM matching for remaining unmatched
-    unmatched = [c for c in target_companies if c.id not in matched_ids]
-
-    if unmatched and scraped_names:
-        llm_matched_ids = await _match_companies_llm(
-            list(scraped_names), unmatched
-        )
-        matched_ids |= llm_matched_ids
-        log.info("gap_analyzer.llm_pass", additional_matched=len(llm_matched_ids))
-
-    # Final uncovered list
-    uncovered = [c for c in target_companies if c.id not in matched_ids]
+    detailed = await analyze_coverage_detailed(scraped_jobs, target_companies)
+    uncovered = detailed["uncovered_objects"]
+    stats = detailed["stats"]
 
     log.info(
         "gap_analyzer.complete",
-        total_targets=len(target_companies),
-        covered=len(matched_ids),
-        uncovered=len(uncovered),
+        total_targets=stats["total_targets"],
+        covered=stats["covered_count"],
+        uncovered=stats["uncovered_count"],
         uncovered_slugs=[c.slug for c in uncovered[:15]],
     )
 
