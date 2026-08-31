@@ -34,56 +34,14 @@ Daily Intel is currently running **Architecture V4**. Evolved from its original 
 
 The platform operates across four decoupled architectural planes:
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                    1. INGESTION PLANE                                                  │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────┐  ┌──────────────────────────────────────────────┐  │
-│  │      Broad Job Sources       │  │    Target Career Portals     │  │          News & Social Intelligence          │  │
-│  │ • LinkedIn Jobs (Apify actor)│  │ • ATS Endpoints (Workday,    │  │ • n8n Global & Tech RSS Webhook (/ingest)   │  │
-│  │ • Adzuna API (Async Paged)   │  │   Greenhouse, Lever, Darwin) │  │ • Apify Twitter/X Handles (@TheStreet, etc) │  │
-│  │ • Hacker News ("Who's Hiring)│  │ • Tier 1: Apify Chrome SPA   │  │ • Apify LinkedIn News (#EV, #charging)      │  │
-│  │ • YC Work at a Startup &     │  │ • Tier 2: Browserbase (CDP)  │  │ • Apify LinkedIn Community Discussions      │  │
-│  │   Remotive API Endpoints     │  │ • Tier 3: Watchlist Guard    │  │ • Apify Custom Sites (Autopunditz Crawler)  │  │
-│  └──────────────┬───────────────┘  └──────────────┬───────────────┘  └──────────────────────┬───────────────────────┘  │
-└─────────────────┼─────────────────────────────────┼─────────────────────────────────────────┼──────────────────────────┘
-                  │                                 │                                         │
-                  ▼                                 ▼                                         ▼
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                            2. PROCESSING & AI REASONING PLANE                                          │
-│  ┌────────────────────────────────────────────────────────────┐  ┌──────────────────────────────────────────────────┐  │
-│  │                     Jobs Engine Pipeline                   │  │                News Engine Pipeline              │  │
-│  │ • V4 Scrape Orchestrator (Broad -> Gap Analysis -> T1/T2)  │  │ • Indian EV Keyword & Entity Pre-Filter          │  │
-│  │ • Gap Analyzer (Deterministic Slug + TensorMux LLM Match)  │  │ • Text Sanitization & 12,000-Char Chunking       │  │
-│  │ • India Location Matcher (State/City/Remote vs Foreign)    │  │ • TensorMux LLM Evaluator (glm-4-7-flash)        │  │
-│  │ • Two-Gate Classifier (Target: Biz Roles | Broad: EV Domain│  │ • JSON Parsing: Headline, Summary, Tags, Score   │  │
-│  │ • Savepoint-Isolated Inserts & pg_trgm Fuzzy Deduplication │  │ • Relevance Scoring (Threshold >= 0.40)          │  │
-│  │ • Job Lifecycle & Staleness Cleaner (21-day auto-close)    │  │ • Atomic Short-Lived Transactions (Neon Safe)    │  │
-│  └─────────────────────────────┬──────────────────────────────┘  └──────────────────────────┬───────────────────────┘  │
-└────────────────────────────────┼────────────────────────────────────────────────────────────┼──────────────────────────┘
-                                 │                                                            │
-                                 ▼                                                            ▼
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                             3. STORAGE PLANE (PostgreSQL / Neon)                                       │
-│  ┌───────────────────────────┐  ┌───────────────────────────┐  ┌──────────────────────────┐  ┌──────────────────────┐  │
-│  │           jobs            │  │      processed_items      │  │        raw_items         │  │   target_companies   │  │
-│  │ • SHA-256 dedup_hash      │  │ • summary & headline      │  │ • raw payload (JSONB)    │  │ • ATS routing & slug │  │
-│  │ • emailed_at stamp        │  │ • relevance_score         │  │ • content_hash           │  │ • preferred_scraper  │  │
-│  │ • first_seen / last_seen  │  │ • semantic tags           │  │ • source_id & URL        │  │ • failure counters   │  │
-│  │ • is_closed staleness     │  │ • section & rank_score    │  │ • occurred_at timestamp  │  │ • last_success_at    │  │
-│  └───────────────────────────┘  └───────────────────────────┘  └──────────────────────────┘  └──────────────────────┘  │
-└──────────────────────────────────────────────────────────────┬─────────────────────────────────────────────────────────┘
-                                                               │
-                                                               ▼
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                    4. DELIVERY PLANE                                                   │
-│  ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐  │
-│  │ • APScheduler Cron Triggers (Asia/Kolkata IST)                                                                   │  │
-│  │ • Email Deduplication Lock (WHERE emailed_at IS NULL ensures zero repeated job sends)                            │  │
-│  │ • Anti-Clipping Payload Slicing (Jobs batched at <= 60/email; News batched at <= 20/email)                       │  │
-│  │ • Jinja2 Template Engine (jobs.html.j2 and daily.html.j2)                                                        │  │
-│  │ • Resend API Dispatch & emailed_at Timestamp Stamping                                                            │  │
-│  └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```text
+┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
+│     1. INGESTION        │     │     2. PROCESSING       │     │       3. STORAGE        │     │      4. DELIVERY        │
+│                         │     │                         │     │                         │     │                         │
+│ • Broad Job APIs        │────▶│ • V4 Gap Analyzer       │────▶│ • PostgreSQL (Neon)     │────▶│ • APScheduler Cron      │
+│ • Target Career Pages   │     │ • EV / Business Filters │     │ • jobs table            │     │ • Digest Assembler      │
+│ • News (RSS/Social)     │────▶│ • TensorMux LLM Scoring │────▶│ • processed_news table  │────▶│ • Resend Email API      │
+└─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
 ```
 
 ---
@@ -94,95 +52,33 @@ The platform operates across four decoupled architectural planes:
 
 ```mermaid
 flowchart TD
-    %% INGESTION PLANE
-    subgraph INGEST ["1. Ingestion Plane"]
-        direction TB
-        subgraph Broad_Job_Sources ["Broad Job Sources"]
-            Broad_LI["LinkedIn Jobs Apify\n(valig/linkedin-jobs-scraper)"]
-            Broad_Adzuna["Adzuna Free API\n(Async Keyword Search)"]
-            Broad_Free["Free APIs\n(HackerNews, YC Startup, Remotive)"]
-        end
-        subgraph Target_Job_Sources ["Target Career Portals"]
-            ATS_Engines["ATS JSON Adapters\n(Workday, Darwinbox, Greenhouse, Lever, Ashby)"]
-            Target_Apify["Tier 1: Apify Crawler\n(Chrome Playwright SPA)"]
-            Target_BB["Tier 2: Browserbase CDP\n(Headless Playwright Fallback)"]
-        end
-        subgraph News_Sources ["News & Intelligence Sources"]
-            News_n8n["n8n Webhook\n(RSS Aggregator Feeds)"]
-            News_Twitter["Apify Twitter Scraper\n(@TheStreet, @xroaders_001, @teslaclubin)"]
-            News_LINews["Apify LinkedIn News\n(#EV, #charging, #Mobility)"]
-            News_LICommunity["Apify LinkedIn Community\n(EV India Discussions)"]
-            News_Custom["Apify Custom Sites\n(Autopunditz Crawler)"]
-        end
+    subgraph Ingestion ["1. Ingestion"]
+        JobsIn[Job Sources\nAPIs, ATS, Scraping]
+        NewsIn[News Sources\nRSS, Twitter, LinkedIn]
+    end
+    
+    subgraph Processing ["2. AI & Processing"]
+        Gap[V4 Gap Analyzer]
+        Filter[Filters & Deduplication]
+        LLM[TensorMux LLM\nNews Summarization]
+    end
+    
+    subgraph Storage ["3. Storage (PostgreSQL)"]
+        DB[(Neon Database\nJobs & News)]
+    end
+    
+    subgraph Delivery ["4. Delivery"]
+        Email[Resend API\nDaily Digests]
     end
 
-    %% BACKEND & SCHEDULER
-    subgraph BACKEND ["2. FastAPI Core & APScheduler Engine"]
-        Router_Ingest["/ingest Router\n(Token Auth, Webhook Handlers)"]
-        Router_Admin["/admin Router\n(Scrape-Now, Previews, Gap-Analyzer, Metrics)"]
-        Scheduler["APScheduler\n(Cron in Asia/Kolkata IST)"]
-    end
-
-    %% PROCESSING PLANE
-    subgraph PROCESSING ["3. Processing & AI Reasoning Plane"]
-        V4_Orchestrator["V4 Scrape Orchestrator\n(Phase 1: Broad -> Phase 2: Gap Analyzer -> Phase 3: T1/T2)"]
-        Gap_Analyzer["Gap Analyzer\n(Deterministic Slug Match + TensorMux LLM Match)"]
-        Job_Classifier["Job Classifier & Heuristic Gate\n• India Location Matcher\n• EV Domain Taxonomy\n• Business / Management Role Matrix"]
-        Job_Dedup["Job Persistence Pipeline\n• Savepoint Isolation\n• SHA-256 dedup_hash\n• pg_trgm Fuzzy Dedup"]
-        News_Filter["News Pre-Filter\n(Indian EV Keywords & Entities)"]
-        News_LLM["TensorMux LLM Evaluator\n(Model: glm-4-7-flash)\n• 12,000-char Chunking\n• Headline, Summary, Tags, Score >= 0.40"]
-    end
-
-    %% DATABASE STORAGE
-    subgraph DATABASE ["4. PostgreSQL Database (Neon Cloud)"]
-        DB_Raw[("raw_items\n(payload, text, url, hash)")]
-        DB_Jobs[("jobs\n(company, title, dedup_hash, emailed_at, is_closed)")]
-        DB_Processed[("processed_items\n(summary, headline, relevance_score, tags)")]
-        DB_Targets[("target_companies\n(slug, ats_type, preferred_scraper, consecutive_failures)")]
-        DB_Attempts[("scrape_attempts\n(run_id, tier, outcome, jobs_found, duration_ms)")]
-    end
-
-    %% DELIVERY PLANE
-    subgraph DELIVERY ["5. Delivery Plane"]
-        Digest_Jobs["Jobs Digest Assembler\n(Batches of <= 60 jobs)"]
-        Digest_News["News Digest Assembler\n(Batches of <= 20 articles)"]
-        Resend_API["Resend Email API"]
-        Inbox[("Client Inbox\n(Morning / Evening IST)")]
-    end
-
-    %% INGESTION FLOWS
-    Broad_Job_Sources --> V4_Orchestrator
-    V4_Orchestrator --> Gap_Analyzer
-    Gap_Analyzer -->|"Identifies Uncovered Targets"| ATS_Engines
-    Gap_Analyzer -->|"Identifies Uncovered Targets"| Target_Apify
-    Target_Apify -.->|"SPA Fallback"| Target_BB
-    ATS_Engines --> Job_Classifier
-    Target_Apify --> Job_Classifier
-    Target_BB --> Job_Classifier
-    V4_Orchestrator --> DB_Attempts
-    V4_Orchestrator --> DB_Targets
-
-    News_Sources --> Router_Ingest
-    Router_Ingest --> News_Filter
-    News_Filter --> DB_Raw
-
-    %% PROCESSING FLOWS
-    Job_Classifier --> Job_Dedup
-    Job_Dedup -->|"Insert Unique / Refresh last_seen_at"| DB_Jobs
-
-    Scheduler -- 06:00 IST --> News_LLM
-    DB_Raw --> News_LLM
-    News_LLM -->|"Short-Lived Transactions"| DB_Processed
-
-    %% DELIVERY FLOWS
-    Scheduler -- 07:00 / 19:00 IST --> Digest_Jobs
-    Scheduler -- Wed 18:30 IST --> Digest_News
-    DB_Jobs --> Digest_Jobs
-    DB_Processed --> Digest_News
-    Digest_Jobs -->|"Stamp emailed_at = now()"| DB_Jobs
-    Digest_Jobs --> Resend_API
-    Digest_News --> Resend_API
-    Resend_API --> Inbox
+    JobsIn --> Gap
+    Gap --> Filter
+    Filter --> DB
+    
+    NewsIn --> LLM
+    LLM --> DB
+    
+    DB --> Email
 ```
 
 ---
@@ -191,51 +87,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start([APScheduler Cron / Admin Trigger]) --> P1[Phase 1: Broad Scraper Polling\nLinkedIn Jobs Apify + Adzuna API]
-    P1 --> Ingest_Broad[Ingest & Normalize Broad Jobs\nLocation Gate + EV Domain Filter]
+    Broad[Broad Scrapers\nLinkedIn, Adzuna] --> Gap{Gap Analyzer}
+    Gap -->|"Target Not Covered"| T1[Tier 1: Apify]
+    Gap -->|"Covered"| Skip[Skip Scrape]
     
-    Ingest_Broad --> P2[Phase 2: Gap Analysis\nDeterministic Slug Normalization + TensorMux LLM Match]
-    P2 --> Match_Check{Target Company\nCaptured in Broad Ingest?}
+    T1 -.->|"Fails (SPA)"| T2[Tier 2: Browserbase]
     
-    Match_Check -- "YES (Covered)" --> Skip_Scrape[Skip Career Portal Scrape\nPreserves Apify / Browserbase Credits]
-    Match_Check -- "NO (Uncovered)" --> TTL_Check{Scraped < 18h ago\nor in T3 Watchlist?}
+    T1 & T2 --> Classify{Classifier Gate\nBusiness / EV Only}
+    Classify -->|"Pass"| Dedup[Fuzzy Deduplication]
+    Classify -->|"Fail"| Drop[Discard Job]
     
-    TTL_Check -- "YES (Within TTL / Failing)" --> Defer_Company[Defer / Skip Target Company]
-    TTL_Check -- "NO (Eligible)" --> Route_Tier{Check Company\npreferred_scraper}
-    
-    Route_Tier -- 'browserbase' --> T2_Exec[Tier 2: Browserbase CDP\nHeadless Playwright Render]
-    Route_Tier -- default --> T1_Exec[Tier 1: Apify Crawler\nPlaywright Chrome SPA Scrape]
-    
-    T1_Exec --> T1_Result{Evaluate T1 Outcome}
-    T1_Result -- Jobs Found --> Extract_Jobs[Extract & Normalize JobIn Objects]
-    T1_Result -- NO_RELEVANT_JOBS --> Terminal_End[Stop: Page Valid, No EV Roles\nNever Escalate to T2]
-    T1_Result -- Empty / Render Failure --> Budget_Check{Browserbase Budget\nUnder 80% Soft Limit?}
-    
-    Budget_Check -- YES --> T2_Exec
-    Budget_Check -- NO --> T3_Watchlist[Tier 3: Route to Watchlist\nIncrement consecutive_failures]
-    
-    T2_Exec --> Extract_Jobs
-    Extract_Jobs --> Classify{Classifier Gating}
-    
-    Classify -- Target Source --> Role_Check{is_business_role?}
-    Classify -- Public Source --> EV_Check{is_ev_relevant & India location?}
-    
-    Role_Check -- Fail --> Drop_Job[Discard Role]
-    Role_Check -- Pass --> Pipeline_Savepoint
-    EV_Check -- Fail --> Drop_Job
-    EV_Check -- Pass --> Pipeline_Savepoint[Savepoint-Wrapped DB Insert]
-    
-    Pipeline_Savepoint --> Hash_Check{Check SHA-256\ndedup_hash in DB}
-    Hash_Check -- Duplicate Exists --> Update_Seen[UPDATE jobs SET last_seen_at = now()]
-    Hash_Check -- New Unique Job --> Insert_Row[INSERT INTO jobs (..., rank_score)]
-    
-    Insert_Row --> Log_Attempt[Log Attempt in scrape_attempts table]
-    Update_Seen --> Log_Attempt
-    Skip_Scrape --> Log_Attempt
-    Defer_Company --> Log_Attempt
-    Terminal_End --> Log_Attempt
-    
-    Log_Attempt --> Done([Jobs Ready for Next Batched Digest])
+    Dedup --> DB[(Database)]
 ```
 
 ---
@@ -243,29 +105,12 @@ flowchart TD
 ### 3. News Processing & AI Pipeline Flowchart
 
 ```mermaid
-flowchart TD
-    N_In[Incoming News Streams\nn8n RSS Webhook / Apify Twitter / Apify LinkedIn] --> N_PreFilter[Keyword & Entity Pre-Filter\nkeyword_filter.py]
+flowchart LR
+    Ingest[Raw News\nn8n, Twitter, LinkedIn] --> Filter[Indian EV\nKeyword Filter]
+    Filter -->|"Matched"| LLM[TensorMux LLM\nScore & Summarize]
+    Filter -.->|"No Match"| Drop[Discard]
     
-    N_PreFilter -- 0 Keyword Hits --> N_Discard[Discard Raw Payload]
-    N_PreFilter -- Matched Indian EV Entity --> N_RawInsert[INSERT INTO raw_items\nStore payload JSONB + content_hash]
-    
-    N_RawInsert --> N_Trigger[Trigger: process_unprocessed_news\nDaily 06:00 IST Cron or Admin API]
-    N_Trigger --> N_Fetch[Fetch Unprocessed raw_items\nJOIN sources ON source_id]
-    
-    N_Fetch --> N_Sanitize[Text Sanitization & Chunking\n12,000-character window bounds]
-    N_Sanitize --> N_LLMCall[TensorMux LLM API Call\nModel: glm-4-7-flash]
-    
-    N_LLMCall --> N_JSONParse[Parse & Validate Structured JSON\nHeadline, Summary, Category, Tags, Score]
-    
-    N_JSONParse --> N_RelevanceGate{Relevance Score >= 0.40\n& Direct India Context?}
-    N_RelevanceGate -- "NO (Foreign / Generic)" --> N_Irrelevant[Mark is_relevant = False]
-    N_RelevanceGate -- YES --> N_ProcessedInsert[INSERT INTO processed_items\nShort-Lived Transaction per Item]
-    
-    N_ProcessedInsert --> N_DigestCron[News Digest Cron\nWednesday 18:30 IST]
-    N_DigestCron --> N_Query[Fetch Relevant News in Lookback Window]
-    N_Query --> N_Slice[Slice into Batches of <= 20 Articles]
-    N_Slice --> N_Render[Render daily.html.j2 Jinja2 Template]
-    N_Render --> N_Send[Send Email via Resend API]
+    LLM -->|"Score >= 0.40"| DB[(Database)]
 ```
 
 ---

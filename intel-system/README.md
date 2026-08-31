@@ -96,6 +96,37 @@ pytest tests/ -v -m integration
 
 ## 🧠 Core Modules Deep Dive
 
+```mermaid
+flowchart TD
+    subgraph Ingestion ["1. Ingestion"]
+        JobsIn[Job Sources\nAPIs, ATS, Scraping]
+        NewsIn[News Sources\nRSS, Twitter, LinkedIn]
+    end
+    
+    subgraph Processing ["2. AI & Processing"]
+        Gap[V4 Gap Analyzer]
+        Filter[Filters & Deduplication]
+        LLM[TensorMux LLM\nNews Summarization]
+    end
+    
+    subgraph Storage ["3. Storage (PostgreSQL)"]
+        DB[(Neon Database\nJobs & News)]
+    end
+    
+    subgraph Delivery ["4. Delivery"]
+        Email[Resend API\nDaily Digests]
+    end
+
+    JobsIn --> Gap
+    Gap --> Filter
+    Filter --> DB
+    
+    NewsIn --> LLM
+    LLM --> DB
+    
+    DB --> Email
+```
+
 ### Module 5: Jobs System (V4 Pipeline)
 The Jobs module is the most complex component of Daily Intel. It utilizes a multi-tiered architecture (Architecture V4) to aggregate EV and business roles while aggressively optimizing Apify and Browserbase compute budgets.
 
