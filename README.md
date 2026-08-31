@@ -153,9 +153,12 @@ flowchart TD
     %% INGESTION FLOWS
     Broad_Job_Sources --> V4_Orchestrator
     V4_Orchestrator --> Gap_Analyzer
-    Gap_Analyzer -->|Identifies Uncovered Targets| ATS_Engines & Target_Apify
-    Target_Apify -.->|SPA Fallback| Target_BB
-    ATS_Engines & Target_Apify & Target_BB --> Job_Classifier
+    Gap_Analyzer -->|"Identifies Uncovered Targets"| ATS_Engines
+    Gap_Analyzer -->|"Identifies Uncovered Targets"| Target_Apify
+    Target_Apify -.->|"SPA Fallback"| Target_BB
+    ATS_Engines --> Job_Classifier
+    Target_Apify --> Job_Classifier
+    Target_BB --> Job_Classifier
     V4_Orchestrator --> DB_Attempts
     V4_Orchestrator --> DB_Targets
 
@@ -165,18 +168,18 @@ flowchart TD
 
     %% PROCESSING FLOWS
     Job_Classifier --> Job_Dedup
-    Job_Dedup -->|Insert Unique / Refresh last_seen_at| DB_Jobs
+    Job_Dedup -->|"Insert Unique / Refresh last_seen_at"| DB_Jobs
 
     Scheduler -- 06:00 IST --> News_LLM
     DB_Raw --> News_LLM
-    News_LLM -->|Short-Lived Transactions| DB_Processed
+    News_LLM -->|"Short-Lived Transactions"| DB_Processed
 
     %% DELIVERY FLOWS
     Scheduler -- 07:00 / 19:00 IST --> Digest_Jobs
     Scheduler -- Wed 18:30 IST --> Digest_News
     DB_Jobs --> Digest_Jobs
     DB_Processed --> Digest_News
-    Digest_Jobs -->|Stamp emailed_at = now()| DB_Jobs
+    Digest_Jobs -->|"Stamp emailed_at = now()"| DB_Jobs
     Digest_Jobs --> Resend_API
     Digest_News --> Resend_API
     Resend_API --> Inbox
@@ -194,11 +197,11 @@ flowchart TD
     Ingest_Broad --> P2[Phase 2: Gap Analysis\nDeterministic Slug Normalization + TensorMux LLM Match]
     P2 --> Match_Check{Target Company\nCaptured in Broad Ingest?}
     
-    Match_Check -- YES (Covered) --> Skip_Scrape[Skip Career Portal Scrape\nPreserves Apify / Browserbase Credits]
-    Match_Check -- NO (Uncovered) --> TTL_Check{Scraped < 18h ago\nor in T3 Watchlist?}
+    Match_Check -- "YES (Covered)" --> Skip_Scrape[Skip Career Portal Scrape\nPreserves Apify / Browserbase Credits]
+    Match_Check -- "NO (Uncovered)" --> TTL_Check{Scraped < 18h ago\nor in T3 Watchlist?}
     
-    TTL_Check -- YES (Within TTL / Failing) --> Defer_Company[Defer / Skip Target Company]
-    TTL_Check -- NO (Eligible) --> Route_Tier{Check Company\npreferred_scraper}
+    TTL_Check -- "YES (Within TTL / Failing)" --> Defer_Company[Defer / Skip Target Company]
+    TTL_Check -- "NO (Eligible)" --> Route_Tier{Check Company\npreferred_scraper}
     
     Route_Tier -- 'browserbase' --> T2_Exec[Tier 2: Browserbase CDP\nHeadless Playwright Render]
     Route_Tier -- default --> T1_Exec[Tier 1: Apify Crawler\nPlaywright Chrome SPA Scrape]
@@ -255,7 +258,7 @@ flowchart TD
     N_LLMCall --> N_JSONParse[Parse & Validate Structured JSON\nHeadline, Summary, Category, Tags, Score]
     
     N_JSONParse --> N_RelevanceGate{Relevance Score >= 0.40\n& Direct India Context?}
-    N_RelevanceGate -- NO (Foreign / Generic) --> N_Irrelevant[Mark is_relevant = False]
+    N_RelevanceGate -- "NO (Foreign / Generic)" --> N_Irrelevant[Mark is_relevant = False]
     N_RelevanceGate -- YES --> N_ProcessedInsert[INSERT INTO processed_items\nShort-Lived Transaction per Item]
     
     N_ProcessedInsert --> N_DigestCron[News Digest Cron\nWednesday 18:30 IST]
