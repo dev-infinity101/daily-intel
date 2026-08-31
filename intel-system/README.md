@@ -94,32 +94,62 @@ pytest tests/ -v -m "not integration"
 pytest tests/ -v -m integration               
 ```
 
+## 🧠 Core Modules Deep Dive
+
+### Module 5: Jobs System (V4 Pipeline)
+The Jobs module is the most complex component of Daily Intel. It utilizes a multi-tiered architecture (Architecture V4) to aggregate EV and business roles while aggressively optimizing Apify and Browserbase compute budgets.
+
+#### 1. V4 Scrape Orchestrator (Broad $\to$ Gap $\to$ Target)
+Instead of scraping every target company's career page daily, the system uses a smart cascade:
+* **Phase 1 (Broad Scrape):** APScheduler triggers broad API/scraper runs (LinkedIn Jobs Apify actor, Adzuna API). These pull thousands of jobs across the ecosystem.
+* **Phase 2 (Gap Analyzer):** A deterministic slug matcher (and fallback TensorMux LLM matcher) analyzes the broad jobs and checks which of our 136 `target_companies` were captured.
+* **Phase 3 (T1/T2 Cascade):** For target companies *not* covered in Phase 1, the orchestrator triggers targeted scraping. It tries **Tier 1 (Apify Chrome Crawler)**. If Apify returns an empty dataset (e.g., heavily obfuscated SPA), it escalates to **Tier 2 (Browserbase Headless CDP)**. Repeated failures route the company to a **Tier 3 (Watchlist)** circuit breaker.
+
+#### 2. The `JobIn` Contract & Classification
+Every job (regardless of source) is normalized into a `JobIn` Pydantic schema. It is then passed through a **Two-Gate Classifier**:
+* **Target Sources** (Career Pages, ATS): Gated purely on whether the role is a **Business, Management, or Operations** role using heuristic keyword matrices. (Engineering/Tech roles are filtered out).
+* **Broad Sources** (LinkedIn, Adzuna): Gated on **Location** (must be India/Remote) and explicit **EV Domain relevance** (checking descriptions against EV/Mobility taxonomies).
+
+#### 3. Deduplication & Lifecycle
+Jobs are persisted using an atomic savepoint pipeline. A SHA-256 `dedup_hash` is calculated over `company + title + location + stripped_url`.
+* If a new hash arrives, it is inserted.
+* If a duplicate hash arrives, `last_seen_at` is refreshed to today.
+* A daily cron job marks any job not seen in the last 21 days as `is_closed = True`.
+
+---
+
+### Module 4: News & Social Intelligence Pipeline
+The News module processes high-volume text from various RSS and social channels, using AI to extract high-signal insights.
+
+#### 1. Ingestion Streams
+* **n8n Webhook:** Listens for RSS feed updates (global tech, EV specific) and forwards payloads to `POST /ingest/news/n8n-webhook`.
+* **Apify Actors:** Specialized actors poll specific Twitter/X handles (e.g., `@teslaclubin`) and LinkedIn hashtags (`#EV`, `#Mobility`).
+
+#### 2. Keyword Pre-Filtering
+Before hitting the database or the LLM, raw text is passed through `keyword_filter.py`. This uses regex and entity matching to verify the content relates specifically to the **Indian EV / Startup context**. If 0 keywords hit, the payload is immediately discarded to save database bloat.
+
+#### 3. Text Chunking & LLM Scoring (TensorMux)
+Valid items are saved to `raw_items`. At 06:00 IST, `process_unprocessed_news()` is triggered:
+* Text is sanitized and chunked to fit within 12,000-character windows.
+* It is evaluated by **TensorMux (`glm-4-7-flash`)**. The LLM returns a strictly validated JSON payload containing a synthesized headline, summary, semantic tags, and a `relevance_score` (0.0 to 1.0).
+* **Threshold Gate:** Items scoring below 0.40 are marked irrelevant and hidden from the digest.
+
+#### 4. Transaction Safety
+Because LLM generation can take 10-30 seconds per item, standard database connections can drop (a known Neon DB idle timeout issue). The news pipeline uses **atomic, short-lived transactions** for each item, guaranteeing stability during long batches.
+
 ---
 
 ## 🗺 Architecture & Build Sequence
 
-| Phase | Module / Goal |
-|:---:|---|
-| **0** | **Scaffolding:** Initial repository setup. |
-| **1** | **Core System (Module 6):** FastAPI, SQLAlchemy, Alembic, and Resend Email Pipeline. |
-| **2** | **Jobs System (Module 5):** V4 Scrape Orchestrator, Gap Analyzer, Apify & Browserbase cascade, Adzuna, LinkedIn Jobs, and ATS integrations. |
-| **3** | **News/RSS (Module 4):** n8n webhook routing, Apify Twitter & LinkedIn news crawlers, TensorMux AI summarizer. |
-| **4** | **Telegram (Module 2):** Telethon ingestion (Planned). |
-| **5** | **Personalization (Module 6):** Semantic vector search using `pgvector` (Planned). |
-| **6** | **WhatsApp (Module 1):** Baileys integration (Planned). |
-| **7** | **LinkedIn (Module 3):** RapidAPI interactions (Planned). |
-| **8** | **Production:** Hardening, observability, and cloud deployment. |
-
----
-
-## ✨ Recent Updates
-
-**Job Scraping & Filtering:**
-- **V4 Gap Analysis Orchestration:** Implemented broad scraper ingestion (LinkedIn Jobs Apify + Adzuna) followed by deterministic and LLM-based gap matching to skip career-portal scraping for target companies already covered.
-- **Two-Tier Scraping Cascade:** Automated fallback routing from Apify (T1) to Browserbase headless CDP (T2) for complex JavaScript SPAs, with automated T3 watchlist circuit breaking.
-- **Lifecycle & Staleness Tracking:** Automatically marks jobs closed after 21 days without re-occurrence; refreshes `last_seen_at` on duplicate hits.
-
-**News Digest & Email Assembly:**
-- **Resend Email Delivery:** Cleanly delivers Jinja2-rendered HTML emails batched into $\le 60$ jobs/email and $\le 20$ news articles/email to prevent email client body clipping.
-- **TensorMux LLM Integration:** Uses `glm-4-7-flash` via TensorMux with short-lived transactions per item for robust large-payload summarization without Neon idle connection dropouts.
+| Phase | Module / Goal | Status |
+|:---:|---|:---:|
+| **0** | **Scaffolding:** Initial repository setup. | ✅ Built |
+| **1** | **Core System (Module 6):** FastAPI, SQLAlchemy, Alembic, and Resend Email Pipeline. | ✅ Built |
+| **2** | **Jobs System (Module 5):** V4 Scrape Orchestrator, Gap Analyzer, Apify & Browserbase cascade, Adzuna, LinkedIn Jobs, and ATS integrations. | ✅ Built |
+| **3** | **News/RSS (Module 4):** n8n webhook routing, Apify Twitter & LinkedIn news crawlers, TensorMux AI summarizer. | ✅ Built |
+| **4** | **Telegram (Module 2):** Telethon ingestion (Planned). | 🚧 Pending |
+| **5** | **Personalization (Module 6):** Semantic vector search using `pgvector` (Planned). | 🚧 Pending |
+| **6** | **WhatsApp (Module 1):** Baileys integration (Planned). | 🚧 Pending |
+| **7** | **LinkedIn (Module 3):** RapidAPI interactions (Planned). | 🚧 Pending |
+| **8** | **Production:** Hardening, observability, and cloud deployment. | 🚧 Pending |
 
