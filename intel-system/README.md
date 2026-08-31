@@ -2,7 +2,7 @@
 
 > **An AI-assisted intelligence engine for the EV, Mobility, and Startup ecosystem in India.**
 
-Daily Intel aggregates, deduplicates, and curates high-signal content from scattered sources—WhatsApp, Telegram, LinkedIn, RSS feeds, and target company ATS boards. Powered by FastAPI, pgvector, and LLMs, it generates highly personalized, noise-free daily digests delivered straight to your inbox at 07:00 IST.
+Daily Intel aggregates, deduplicates, and curates high-signal content from scattered sources—career portals, free job APIs, LinkedIn discussions, Twitter/X handles, RSS feeds, and target company ATS boards. Powered by FastAPI, PostgreSQL (Neon / local pgvector), TensorMux (`glm-4-7-flash`), and Resend, it generates noise-free daily digests delivered straight to your inbox on an IST schedule.
 
 ---
 
@@ -11,14 +11,14 @@ Daily Intel aggregates, deduplicates, and curates high-signal content from scatt
 **Prerequisites:** Python 3.12, Docker + Compose v2
 
 ### 1. Start Infrastructure
-Boot up the core services (PostgreSQL with pgvector, n8n, changedetection.io, and MailHog):
+Boot up the core services (PostgreSQL with `pgvector` and `n8n`):
 ```bash
 docker compose up -d
 ```
 
 ### 2. Setup Python Environment
 We strictly use virtual environments for local development.
-```bash
+```powershell
 python -m venv venv
 
 # Windows (PowerShell):
@@ -36,12 +36,12 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # Run database migrations
-alembic upgrade head
+python -m alembic upgrade head
 
 # Seed target companies (Required for the Jobs module)
-python scripts/seed_target_companies.py
+python scripts/seed_from_csv.py
 ```
-> **Note:** Ensure `GEMINI_API_KEY` is set in your `.env` for LLM-powered summarization and relevance scoring.
+> **Note:** Ensure `TENSORMUX_API_KEY` and `RESEND_API_KEY` are populated in your `.env` for LLM-powered summarization and email delivery.
 
 ### 4. Launch the API
 ```bash
@@ -57,36 +57,40 @@ When running locally, you can access the following services:
 | Service | Local URL | Description |
 |---|---|---|
 | **FastAPI Docs** | [http://localhost:8000/docs](http://localhost:8000/docs) | Interactive API documentation (Swagger UI). |
-| **MailHog** | [http://localhost:8025](http://localhost:8025) | Local email preview for testing daily digests. |
+| **Jobs Preview** | [http://localhost:8000/admin/jobs/preview](http://localhost:8000/admin/jobs/preview) | Instant preview of rendered HTML for unsent jobs. |
+| **News Preview** | [http://localhost:8000/admin/news/preview](http://localhost:8000/admin/news/preview) | Instant preview of rendered HTML for processed news items. |
 | **n8n** | [http://localhost:5678](http://localhost:5678) | Workflow automation for RSS and news polling. |
-| **changedetection.io**| [http://localhost:5000](http://localhost:5000) | Website change monitoring for target company career pages. |
 
 ---
 
 ## 🧪 Testing & Diagnostics
 
 ### Manual Digest Trigger
-Force the system to assemble and send a digest immediately. Check MailHog to preview it.
-```bash
-python scripts/manual_send.py
+Trigger digest assembly and dispatch directly to your configured `EMAIL_TO` via Resend:
+```powershell
+# Send Jobs digest now:
+curl.exe -X POST http://localhost:8000/admin/jobs/digest-now
+
+# Send News digest now:
+curl.exe -X POST http://localhost:8000/admin/news/digest-now
 ```
 
 ### Simulating an Ingestion Webhook
 Test the `POST /ingest` pipeline using a mock payload:
-```bash
-curl -s -X POST http://localhost:8000/ingest \
-  -H "X-Ingest-Token: dev-token" \
-  -H "X-Source-Type: telegram_channel" \
-  -H "Content-Type: application/json" \
-  -d @tests/fixtures/sample_ingest.json | python -m json.tool
+```powershell
+curl.exe -s -X POST http://localhost:8000/ingest `
+  -H "X-Ingest-Token: dev-token" `
+  -H "X-Source-Type: custom_site" `
+  -H "Content-Type: application/json" `
+  -d '{\"source_identifier\":\"test\",\"items\":[{\"text\":\"Tata Motors launches new commercial EV fleet in Mumbai.\",\"occurred_at\":\"2026-08-31T00:00:00Z\"}]}'
 ```
 
 ### Running the Test Suite
-```bash
-# Unit tests (Runs completely offline, no DB required)
+```powershell
+# Unit tests (Runs completely offline, no live network required)
 pytest tests/ -v -m "not integration"          
 
-# Integration tests (Requires running docker compose infra)
+# Integration tests (Requires running database)
 pytest tests/ -v -m integration               
 ```
 
@@ -97,13 +101,13 @@ pytest tests/ -v -m integration
 | Phase | Module / Goal |
 |:---:|---|
 | **0** | **Scaffolding:** Initial repository setup. |
-| **1** | **Core System (Module 6):** FastAPI, SQLAlchemy, Alembic, and the Email Pipeline. |
-| **2** | **Jobs System (Module 5):** Apify orchestration, Adzuna, LinkedIn, and ATS integrations. |
-| **3** | **News/RSS (Module 4):** n8n webhook routing. |
-| **4** | **Telegram (Module 2):** Telethon ingestion. |
-| **5** | **Personalization (Module 6):** Semantic vector search using `pgvector`. |
-| **6** | **WhatsApp (Module 1):** Baileys integration. |
-| **7** | **LinkedIn (Module 3):** RapidAPI interactions. |
+| **1** | **Core System (Module 6):** FastAPI, SQLAlchemy, Alembic, and Resend Email Pipeline. |
+| **2** | **Jobs System (Module 5):** V4 Scrape Orchestrator, Gap Analyzer, Apify & Browserbase cascade, Adzuna, LinkedIn Jobs, and ATS integrations. |
+| **3** | **News/RSS (Module 4):** n8n webhook routing, Apify Twitter & LinkedIn news crawlers, TensorMux AI summarizer. |
+| **4** | **Telegram (Module 2):** Telethon ingestion (Planned). |
+| **5** | **Personalization (Module 6):** Semantic vector search using `pgvector` (Planned). |
+| **6** | **WhatsApp (Module 1):** Baileys integration (Planned). |
+| **7** | **LinkedIn (Module 3):** RapidAPI interactions (Planned). |
 | **8** | **Production:** Hardening, observability, and cloud deployment. |
 
 ---
@@ -111,10 +115,11 @@ pytest tests/ -v -m integration
 ## ✨ Recent Updates
 
 **Job Scraping & Filtering:**
-- **Concurrent Scaling:** Upgraded the Adzuna scraper with asynchronous pagination, fetching up to 4 pages per keyword concurrently to scale ingestion past standard API limits.
-- **Cost-Optimized LinkedIn Scraping:** Migrated LinkedIn Apify scraping to `curious_coder/linkedin-jobs-scraper`. Configured strict constraints (`splitByLocation=False`, `scrapeCompany=False`, max 50 items) to prevent deep company scanning and runaway Apify costs.
-- **Hardened Ingestion Pipeline:** Removed legacy bypass logic for LinkedIn and Adzuna. All incoming jobs are now strictly forced through the central EV and business role classifier prior to persistence.
+- **V4 Gap Analysis Orchestration:** Implemented broad scraper ingestion (LinkedIn Jobs Apify + Adzuna) followed by deterministic and LLM-based gap matching to skip career-portal scraping for target companies already covered.
+- **Two-Tier Scraping Cascade:** Automated fallback routing from Apify (T1) to Browserbase headless CDP (T2) for complex JavaScript SPAs, with automated T3 watchlist circuit breaking.
+- **Lifecycle & Staleness Tracking:** Automatically marks jobs closed after 21 days without re-occurrence; refreshes `last_seen_at` on duplicate hits.
 
 **News Digest & Email Assembly:**
-- **Cleaner Batches:** Fixed a major batching bug in the email assembler where job postings were being silently grouped with news queries, causing the generation of blank news emails. 
-- **Higher Density:** Increased the `NEWS_BATCH_SIZE` from 20 to 50 articles per email, significantly reducing inbox clutter while maximizing content delivery.
+- **Resend Email Delivery:** Cleanly delivers Jinja2-rendered HTML emails batched into $\le 60$ jobs/email and $\le 20$ news articles/email to prevent email client body clipping.
+- **TensorMux LLM Integration:** Uses `glm-4-7-flash` via TensorMux with short-lived transactions per item for robust large-payload summarization without Neon idle connection dropouts.
+
