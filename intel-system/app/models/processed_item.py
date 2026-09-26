@@ -10,6 +10,7 @@ class ProcessedItem(Base):
     __tablename__ = "processed_items"
     __table_args__ = (
         Index("idx_processed_section_rank", "section", "rank_score"),
+        Index("idx_processed_emailed_at", "emailed_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -23,4 +24,10 @@ class ProcessedItem(Base):
     rank_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     processed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Stamped when this item is first included in a sent digest email.
+    # NULL  → never emailed.
+    # NOT NULL → already sent; excluded from future digests automatically.
+    emailed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
     )

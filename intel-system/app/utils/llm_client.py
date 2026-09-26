@@ -10,9 +10,9 @@ log = structlog.get_logger()
 _next_allowed_time = 0.0
 _lock = asyncio.Lock()
 
-# Tensormux limits
-RPM_LIMIT = 15.0
-TPM_LIMIT = 20000.0
+# Tensormux limits optimized for glm-4-7-flash (Zhipu AI)
+RPM_LIMIT = 60.0
+TPM_LIMIT = 500000.0
 
 
 async def call_llm_with_rate_limit(

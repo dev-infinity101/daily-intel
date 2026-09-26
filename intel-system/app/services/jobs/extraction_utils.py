@@ -30,7 +30,7 @@ log = structlog.get_logger()
 
 CHUNK_SIZE = 15_000
 MAX_CHUNKS = 4
-REGION_WINDOW = 40_000   # max chars for isolated job region
+REGION_WINDOW = 60_000   # max chars for isolated job region
 
 # ── Embedded JSON patterns ────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ _WINDOW_STATE_PATTERNS: list[re.Pattern[str]] = [
 # ── Job-density pattern ───────────────────────────────────────────────────────
 
 _JOB_LINK_RE = re.compile(
-    r'href=["\'][^"\']*(?:job|career|position|role|opening|vacanc)[^"\']*["\']',
+    r'(?:href=["\']|\]\()[^"\'\)]*(?:job|career|position|role|opening|vacanc|req|opportun|detail|listing|board|apply|posting)[^"\'\)]*(?:["\']|\))',
     re.I,
 )
 
@@ -191,7 +191,7 @@ Content:
                 client=client,
                 model=settings.tensormux_model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0,
+                temperature=0.01,
                 max_tokens=4096,
                 timeout=120.0,
             )
@@ -540,7 +540,7 @@ async def extract_jobs_eightfold(
                     client=client,
                     model=settings.tensormux_model,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0,
+                    temperature=0.01,
                     max_tokens=4096,
                     timeout=120.0,
                 )

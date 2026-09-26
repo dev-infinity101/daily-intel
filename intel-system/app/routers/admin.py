@@ -100,16 +100,19 @@ async def experiment_summary(db: AsyncSession = Depends(get_db)) -> dict[str, ob
 
 @router.post("/jobs/scrape-now")
 async def scrape_jobs_now(company: str | None = None) -> dict[str, object]:
-    """Trigger V4 scrape: LinkedIn Jobs Apify → Adzuna → Gap Analysis → T1/T2.
+    """Trigger the full V4 scrape pipeline (all phases).
 
-    Pass ?company=<slug> for a single-company run (bypasses phases 1-3,
+    Pass ?company=<slug> for a single-company run (bypasses phases 1–3,
     runs T1→T2 directly for that company — fast testing mode).
 
-    Full run (no company param) executes the 4-phase V4 flow:
-      1. LinkedIn Jobs Apify scraper (valig/linkedin-jobs-scraper)
-      2. Adzuna free API
-      3. Gap analysis — which target companies are NOT covered?
-      4. T1 Apify → T2 Browserbase only for uncovered companies
+    Full run (no company param) executes the 5-phase V4 flow:
+      Phase 1a — LinkedIn Jobs Apify      (valig/linkedin-jobs-scraper)
+      Phase 1b — LinkedIn Posts Hiring    (harvestapi/linkedin-post-search,
+                                           query: '"hiring" "EV" "india"',
+                                           max 20 posts, last 7 days)
+      Phase 2  — Adzuna free API
+      Phase 3  — Gap analysis (which target companies are NOT covered?)
+      Phase 4  — T1 Apify → T2 Browserbase for uncovered companies
     """
     from app.services.jobs.scrape_orchestrator import orchestrate_scrape_v4
 
@@ -133,6 +136,35 @@ async def scrape_linkedin_now() -> dict[str, object]:
 
     _, stats = await poll_and_persist_linkedin_jobs_apify()
     return stats
+
+
+@router.post("/jobs/lkd-hiring-posts")
+async def scrape_linkedin_hiring_posts_now() -> dict[str, object]:
+    """Trigger Phase 1b (T4) — LinkedIn Posts Hiring scraper in isolation.
+
+    Searches public LinkedIn posts with the single query:
+        "hiring" "EV" "india"
+
+    Constraints (same as when run inside /scrape-now):
+      - Max 20 posts, never more.
+      - Only posts from the last 7 days (dateRange=pastWeek + local filter).
+      - Uses the harvestapi/linkedin-post-search Apify actor.
+      - Posts are normalised to JobIn and routed through persist_filtered_jobs()
+        (EV relevance filter + role filter + dedup hash).
+      - source_type = 'linkedin_posts_hiring'
+
+    Returns:
+        status        — 'completed' | 'skipped' | 'error'
+        jobs_fetched  — posts normalised (before pipeline filter)
+        jobs_inserted — rows actually written to the jobs table
+        duration_ms   — wall-clock time for this phase
+    """
+    from app.services.jobs.free_apis.linkedin_posts_hiring import (
+        fetch_and_persist_linkedin_posts_hiring,
+    )
+
+    _, stats = await fetch_and_persist_linkedin_posts_hiring()
+    return {"status": "completed", **stats}
 
 
 @router.post("/jobs/gap-analyzer")
@@ -228,8 +260,9 @@ async def jobs_metrics(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
     from app.config import settings as cfg
     t1_soft = int(cfg.apify_monthly_cu_limit * 0.8)
     t2_soft = int(cfg.browserbase_monthly_minutes_limit * 0.8)
-    monthly_t1 = monthly[0] if monthly else 0
-    monthly_t2 = monthly[1] if monthly else 0
+    monthly_t1 = monthly[0] if monthly and monthly[0] is not None else 0
+    monthly_t2 = monthly[1] if monthly and monthly[1] is not None else 0
+    monthly_total = monthly[2] if monthly and monthly[2] is not None else 0
 
     return {
         "last_run": {
@@ -255,7 +288,7 @@ async def jobs_metrics(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
             "t2_sessions": monthly_t2,
             "t2_soft_limit": t2_soft,
             "t2_pct": round(monthly_t2 / t2_soft * 100, 1) if t2_soft else 0,
-            "total_inserted_this_month": monthly[2] if monthly else 0,
+            "total_inserted_this_month": monthly_total,
         },
         "watchlist": [
             {

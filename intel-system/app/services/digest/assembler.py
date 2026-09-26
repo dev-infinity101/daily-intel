@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.digest import Digest
@@ -33,13 +33,18 @@ async def fetch_news_items(
     hours: int = 168,
     section: str | None = None,
 ) -> list[ProcessedItem]:
-    """Fetch relevant news items processed within the given lookback window (default 168h / 7 days)."""
+    """Fetch relevant, un-emailed news items processed within the lookback window.
+
+    Only items where emailed_at IS NULL are returned, so a sent item is
+    guaranteed never to appear in a future digest even if the window overlaps.
+    """
     cutoff = (datetime.now(IST) - timedelta(hours=hours)).astimezone(timezone.utc)
     
     conditions = [
         ProcessedItem.is_relevant == True,  # noqa: E712
         ProcessedItem.processed_at >= cutoff,
-        ProcessedItem.section.in_(["news", "telegram", "whatsapp", "linkedin", "linkedin_community"]),
+        ProcessedItem.section.in_(["news", "telegram", "whatsapp", "twitter", "linkedin", "linkedin_community"]),
+        ProcessedItem.emailed_at.is_(None),  # Never resend an already-emailed item
     ]
     if section:
         conditions.append(ProcessedItem.section == section)
@@ -74,6 +79,21 @@ def assemble_html(
     )
 
 
+async def stamp_emailed_at(db: AsyncSession, items: list[ProcessedItem]) -> None:
+    """Mark all given ProcessedItems as emailed right now (only if not already stamped)."""
+    item_ids = [i.id for i in items if i.emailed_at is None]
+    if not item_ids:
+        return
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(ProcessedItem)
+        .where(ProcessedItem.id.in_(item_ids))
+        .where(ProcessedItem.emailed_at.is_(None))
+        .values(emailed_at=now)
+    )
+    await db.commit()
+
+
 async def record_digest(
     db: AsyncSession,
     items: list[ProcessedItem],
@@ -95,11 +115,11 @@ async def record_digest(
 
 
 async def run_news_digest(db: AsyncSession, hours: int = 168) -> dict[str, Any]:
-    """Assemble and send news digest in batches of max 20 articles.
+    """Assemble and send news digest in batches of max 50 articles.
     
-    Defaults to hours=168 (7 days) for weekly Wednesday evening delivery.
-    Splits articles into batches of NEWS_BATCH_SIZE (20) so no single email
-    becomes excessively large.
+    Defaults to hours=168 (7 days) lookback window, but only un-emailed items
+    are selected, so old items that were already sent will never reappear.
+    Stamps emailed_at on each ProcessedItem after a successful send.
     """
     from app.services.email.sender import send_email
     import asyncio
@@ -113,7 +133,7 @@ async def run_news_digest(db: AsyncSession, hours: int = 168) -> dict[str, Any]:
         
     url_map = await fetch_url_map(db, items)
 
-    # ── Split into batches of at most 20 articles ────────────────────────────
+    # ── Split into batches ────────────────────────────────────────────────────
     batches = [items[i:i + NEWS_BATCH_SIZE] for i in range(0, len(items), NEWS_BATCH_SIZE)]
     total_batches = len(batches)
     total_items = len(items)
@@ -138,6 +158,9 @@ async def run_news_digest(db: AsyncSession, hours: int = 168) -> dict[str, Any]:
         try:
             provider_id = await send_email(subject, html)
             provider_ids.append(provider_id)
+            # Stamp emailed_at BEFORE recording digest so any re-run during a failure
+            # won't re-send the same items.
+            await stamp_emailed_at(db, batch_items)
             await record_digest(db, batch_items, html, subject, provider_id)
             sent_count += n
             log.info(
@@ -167,5 +190,3 @@ async def run_news_digest(db: AsyncSession, hours: int = 168) -> dict[str, Any]:
         "batches": total_batches,
         "provider_ids": provider_ids,
     }
-
-

@@ -273,35 +273,40 @@ async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str,
         md  = item.get("markdown") or ""
         txt = item.get("text") or ""
         inline_html = item.get("html") or ""
-
-        # prefer longest of markdown / plain text
-        content = md if len(md) >= len(txt) else txt
-
-        # upgrade to inline HTML if text/markdown are thin
-        if len(content) < 1000 and inline_html:
-            stripped = _re.sub(r"<[^>]+>", " ", inline_html)
-            stripped = _re.sub(r"\s{2,}", " ", stripped).strip()
-            if len(stripped) > len(content):
-                content = stripped
-
-        # fetch raw HTML from htmlUrl when content is still short
         html_url = item.get("htmlUrl") or ""
-        if html_url and len(content) < 2000:
+
+        # 1. Fetch raw HTML if missing
+        raw_html = inline_html
+        if not raw_html and html_url:
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
                     r = await client.get(html_url, params={"token": token})
                     r.raise_for_status()
                     raw_html = r.text
-                    stripped = _re.sub(r"<script[^>]*>.*?</script>", " ", raw_html, flags=_re.S | _re.I)
-                    stripped = _re.sub(r"<style[^>]*>.*?</style>", " ", stripped, flags=_re.S | _re.I)
-                    stripped = _re.sub(r"<[^>]+>", " ", stripped)
-                    stripped = _re.sub(r"\s{2,}", " ", stripped).strip()
-                    if len(stripped) > len(content):
-                        content = stripped
             except Exception as exc:
                 log.debug("apify.htmlurl_fetch_failed", company=company_slug, error=str(exc))
 
-        return content  # V3: no truncation here — extraction_utils handles chunking
+        # 2. Check for embedded SPA JSON (highest quality, zero LLM noise)
+        if raw_html:
+            from app.services.jobs.extraction_utils import extract_embedded_json
+            embedded = extract_embedded_json(raw_html)
+            if embedded:
+                log.info("apify.embedded_json_extracted_at_adapter", company=company_slug, chars=len(embedded))
+                return embedded
+
+        # 3. Fallback: Prefer cleanest text for LLM extraction
+        content = md if len(md) >= len(txt) else txt
+
+        # 4. If text/markdown is thin, salvage plain text from HTML
+        if len(content) < 1000 and raw_html:
+            stripped = _re.sub(r"<script[^>]*>.*?</script>", " ", raw_html, flags=_re.S | _re.I)
+            stripped = _re.sub(r"<style[^>]*>.*?</style>", " ", stripped, flags=_re.S | _re.I)
+            stripped = _re.sub(r"<[^>]+>", " ", stripped)
+            stripped = _re.sub(r"\s{2,}", " ", stripped).strip()
+            if len(stripped) > len(content):
+                content = stripped
+
+        return content
 
     contents = [await _best_content(item) for item in items]
     combined = "\n\n".join(c for c in contents if c)
@@ -313,7 +318,7 @@ async def _extract_jobs_from_crawler_items(items: list[dict], company_slug: str,
         combined_chars=len(combined),
     )
 
-    if len(combined) < 2000:
+    if len(combined) < 500:
         log.warning("apify.too_few_characters_escalating_to_t2", company=company_slug, chars=len(combined))
         return []
 

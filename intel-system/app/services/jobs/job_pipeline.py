@@ -86,6 +86,26 @@ async def persist_filtered_jobs(
         is_target = _is_target_company_source(source_type)
 
         # ── 1. Filter ────────────────────────────────────────────────────────
+        if source_type == "adzuna" and "Found via: EV charging" in desc:
+            dept = (job.department or "").lower()
+            if "business" not in dept and "sales" not in dept:
+                skipped_filter += 1
+                log.info(
+                    "job_pipeline.filtered_out",
+                    idx=idx,
+                    title=title[:80],
+                    company=job.company[:40],
+                    source=source_type,
+                    is_target=is_target,
+                    reason="adzuna_ev_charging_non_business",
+                    location=job.location,
+                    location_status="not_evaluated",
+                    domain_status="not_evaluated",
+                    role_status="adzuna_rejected_category",
+                    title_keywords=[],
+                )
+                continue
+
         # All sources: India-first EV/Mobility business-role fit.
         filter_result = evaluate_job_filter(
             title,

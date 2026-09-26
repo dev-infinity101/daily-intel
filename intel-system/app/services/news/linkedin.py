@@ -1,14 +1,16 @@
-"""Module 3b — LinkedIn news scraper via Apify (hashtag/keyword search).
+"""Module 3b — LinkedIn scraper via Apify (hashtag search).
 
-Searches public LinkedIn posts tagged with domain hashtags rather than a
-specific account. Hashtag search can still surface off-topic posts that
-merely co-occur, so the shared keyword filter runs as a safety net before
-anything reaches raw_items.
+Searches public LinkedIn posts tagged with core EV domain hashtags.
+All scraped posts are ingested as source_type='linkedin_news' and
+later classified by the LLM into two sections:
 
-Actor: harvestapi/linkedin-post-search (no-cookie public search;
-configurable via settings.apify_linkedin_actor_id). Verify input field
-names in the Apify console before first run — actor schemas can change
-between versions.
+  - 'linkedin'           → Industry news, company announcements, factual updates
+  - 'linkedin_community' → Opinion posts, thought-leadership, community discussion
+
+The keyword_filter is NOT applied here; the LLM acts as the sole quality gate
+and also handles rejection of spam, jobs, and off-topic content.
+
+Actor: harvestapi/linkedin-post-search
 """
 import asyncio
 from datetime import datetime, timezone
@@ -21,15 +23,14 @@ from app.config import settings
 from app.database import SessionLocal
 from app.schemas.ingest import IngestItem, IngestRequest
 from app.services.dedup import ingest_items
-from app.services.news.keyword_filter import filter_items
 
 log = structlog.get_logger()
 
 _APIFY_BASE = "https://api.apify.com/v2"
 
-# Each hashtag is run as its own search query by the actor.
-SEARCH_QUERIES: list[str] = ["#EV", "#charging", "#Mobility", "#ElectricVehicles", "#Emobility", "#EVIndia"]
-MAX_POSTS = 60
+# Core EV hashtags — merged from original Module 3b + 3c tags.
+SEARCH_QUERIES: list[str] = ["#EV", "#EVcharging", "#Emobility"]
+MAX_POSTS = 50
 
 
 async def _trigger_actor() -> tuple[str, str]:
@@ -106,6 +107,7 @@ def _normalize_post(post: dict[str, Any]) -> IngestItem | None:
     url = post.get("linkedinUrl") or None
     author: dict = post.get("author") or {}
     name = author.get("name") or "unknown"
+    info = author.get("info") or ""
 
     posted_at: dict = post.get("postedAt") or {}
     date_raw: str = posted_at.get("date") or ""
@@ -117,16 +119,24 @@ def _normalize_post(post: dict[str, Any]) -> IngestItem | None:
             datetime.fromtimestamp(ts / 1000, tz=timezone.utc) if ts else datetime.now(timezone.utc)
         )
 
+    author_line = f"{name} ({info})" if info else name
+
     return IngestItem(
         external_id=post_id or None,
         occurred_at=occurred_at,
         url=url,
-        text=f"{name}: {text}",
+        text=f"{author_line}: {text}",
         payload=post,
     )
 
 
 async def poll_linkedin() -> dict[str, Any]:
+    """Scrape LinkedIn posts for core EV hashtags and ingest all of them.
+
+    No local keyword filtering — the LLM pipeline classifies each post as
+    industry news ('linkedin' section) or community opinion ('linkedin_community')
+    and handles rejection of irrelevant content.
+    """
     if not settings.apify_token and not settings.apify_token_secondary:
         log.warning("linkedin.apify_token_missing")
         return {"status": "skipped", "reason": "no_apify_token"}
@@ -139,9 +149,9 @@ async def poll_linkedin() -> dict[str, Any]:
     except httpx.HTTPStatusError as e:
         log.error("linkedin.apify_http_error", status_code=e.response.status_code, error=str(e))
         return {
-            "status": "error", 
+            "status": "error",
             "reason": f"apify_http_error_{e.response.status_code}",
-            "message": "Apify API rejected the request. You may be out of free credits, or the actor is no longer available to your account."
+            "message": "Apify API rejected the request. You may be out of free credits, or the actor is no longer available to your account.",
         }
     except Exception as e:
         log.error("linkedin.apify_unknown_error", error=str(e))
@@ -149,16 +159,15 @@ async def poll_linkedin() -> dict[str, Any]:
 
     log.info("linkedin.fetched", count=len(raw_posts))
 
+    # No keyword filter — ingest everything for LLM classification.
     items = [n for p in raw_posts if (n := _normalize_post(p)) is not None]
-    filtered, dropped = filter_items(items)
-    log.info("linkedin.keyword_filter", kept=len(filtered), dropped=dropped)
+    log.info("linkedin.normalized", kept=len(items), total=len(raw_posts))
 
-    if not filtered:
+    if not items:
         return {
             "status": "ok",
             "fetched": len(raw_posts),
             "kept": 0,
-            "dropped": dropped,
             "accepted": 0,
             "duplicates": 0,
         }
@@ -168,14 +177,13 @@ async def poll_linkedin() -> dict[str, Any]:
         result = await ingest_items(
             db,
             source_type="linkedin_news",
-            request=IngestRequest(source_identifier="linkedin_hashtag_search", items=filtered),
+            request=IngestRequest(source_identifier="linkedin_hashtag_search", items=items),
         )
         log.info("linkedin.ingested", accepted=result.accepted, duplicates=result.duplicates)
         return {
             "status": "ok",
             "fetched": len(raw_posts),
-            "kept": len(filtered),
-            "dropped": dropped,
+            "kept": len(items),
             "accepted": result.accepted,
             "duplicates": result.duplicates,
         }

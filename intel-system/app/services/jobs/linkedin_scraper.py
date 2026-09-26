@@ -419,7 +419,7 @@ Jobs:
                 client=or_client,
                 model=settings.tensormux_model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0,
+                temperature=0.01,
             )
             if not getattr(response, "choices", None):
                 raise ValueError("Empty choices in response")

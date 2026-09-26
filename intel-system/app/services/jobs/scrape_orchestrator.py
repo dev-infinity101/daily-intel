@@ -955,6 +955,33 @@ async def orchestrate_scrape_v4(
             duration_ms=phase1_ms,
         )
 
+        # ── Phase 1b: LinkedIn Posts Hiring (T4) ──────────────────────────────
+        # Searches public LinkedIn posts with the single query:
+        #   '"hiring" "EV" "india"'
+        # Max 20 posts, last 7 days only. Same actor as news/linkedin.py
+        # (harvestapi/linkedin-post-search). Non-fatal: errors skip this phase.
+        log.info("orchestrator_v4.phase1b_start", phase="linkedin_posts_hiring")
+        phase1b_start = time.monotonic()
+
+        try:
+            from app.services.jobs.free_apis.linkedin_posts_hiring import (
+                fetch_and_persist_linkedin_posts_hiring,
+            )
+            hiring_posts_jobs, hiring_posts_stats = await fetch_and_persist_linkedin_posts_hiring()
+        except Exception as exc:
+            log.exception("orchestrator_v4.phase1b_failed")
+            hiring_posts_jobs = []
+            hiring_posts_stats = {"status": "error", "error": str(exc)}
+
+        phase1b_ms = int((time.monotonic() - phase1b_start) * 1000)
+        hiring_posts_stats["duration_ms"] = phase1b_ms
+        log.info(
+            "orchestrator_v4.phase1b_done",
+            jobs_fetched=len(hiring_posts_jobs),
+            inserted=hiring_posts_stats.get("jobs_inserted", 0),
+            duration_ms=phase1b_ms,
+        )
+
         # ── Phase 2: Adzuna ───────────────────────────────────────────────────
         log.info("orchestrator_v4.phase2_start", phase="adzuna")
         phase2_start = time.monotonic()
@@ -1000,8 +1027,8 @@ async def orchestrate_scrape_v4(
         finally:
             await db.close()
 
-        # Merge all scraped jobs for analysis
-        all_scraped_jobs = linkedin_jobs + adzuna_jobs
+        # Merge all scraped jobs for analysis (Phase 1a + 1b + Phase 2)
+        all_scraped_jobs = linkedin_jobs + hiring_posts_jobs + adzuna_jobs
 
         # Run gap analysis
         try:
@@ -1215,25 +1242,27 @@ async def orchestrate_scrape_v4(
         total_duration_ms = int((time.monotonic() - run_start) * 1000)
         total_inserted = (
             linkedin_stats.get("jobs_inserted", 0)
+            + hiring_posts_stats.get("jobs_inserted", 0)
             + adzuna_stats.get("jobs_inserted", 0)
             + p4_jobs_inserted
         )
         total_fetched = (
-            len(linkedin_jobs) + len(adzuna_jobs) + p4_jobs_fetched
+            len(linkedin_jobs) + len(hiring_posts_jobs) + len(adzuna_jobs) + p4_jobs_fetched
         )
 
         sep = "=" * 65
         print(f"\n{sep}")
         print(f"  V4 SCRAPE RUN  --  run_id={run_id}")
         print(sep)
-        print(f"  Phase 1 (LinkedIn Jobs Apify) : {len(linkedin_jobs)} fetched, {linkedin_stats.get('jobs_inserted', 0)} inserted")
-        print(f"  Phase 2 (Adzuna)              : {len(adzuna_jobs)} fetched, {adzuna_stats.get('jobs_inserted', 0)} inserted")
-        print(f"  Phase 3 (Gap Analysis)        : {gap_stats['covered_by_broad_scrapers']} covered, {gap_stats['uncovered_for_t1t2']} uncovered")
-        print(f"  Phase 4 (Targeted T1/T2)      : {p4_jobs_fetched} fetched, {p4_jobs_inserted} inserted")
-        print(f"  ────────────────────────────────────────────")
-        print(f"  Total jobs fetched            : {total_fetched}")
-        print(f"  Total jobs inserted           : {total_inserted}")
-        print(f"  Total duration                : {total_duration_ms / 1000:.1f}s")
+        print(f"  Phase 1a (LinkedIn Jobs Apify)   : {len(linkedin_jobs)} fetched, {linkedin_stats.get('jobs_inserted', 0)} inserted")
+        print(f"  Phase 1b (LinkedIn Posts Hiring) : {len(hiring_posts_jobs)} fetched, {hiring_posts_stats.get('jobs_inserted', 0)} inserted")
+        print(f"  Phase 2  (Adzuna)                : {len(adzuna_jobs)} fetched, {adzuna_stats.get('jobs_inserted', 0)} inserted")
+        print(f"  Phase 3  (Gap Analysis)          : {gap_stats['covered_by_broad_scrapers']} covered, {gap_stats['uncovered_for_t1t2']} uncovered")
+        print(f"  Phase 4  (Targeted T1/T2)        : {p4_jobs_fetched} fetched, {p4_jobs_inserted} inserted")
+        print(f"  ─────────────────────────────────────────────────────────────")
+        print(f"  Total jobs fetched               : {total_fetched}")
+        print(f"  Total jobs inserted              : {total_inserted}")
+        print(f"  Total duration                   : {total_duration_ms / 1000:.1f}s")
         if watchlist:
             print(f"\n  WATCHLIST: {', '.join(watchlist[:10])}")
         print(f"{sep}\n")
@@ -1248,7 +1277,8 @@ async def orchestrate_scrape_v4(
 
         return {
             "run_id": run_id,
-            "phase1_linkedin": linkedin_stats,
+            "phase1a_linkedin": linkedin_stats,
+            "phase1b_linkedin_posts": hiring_posts_stats,
             "phase2_adzuna": adzuna_stats,
             "phase3_gap_analysis": gap_stats,
             "phase4_targeted": targeted_stats,

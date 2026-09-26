@@ -130,30 +130,6 @@ async def trigger_linkedin_now() -> dict:
     return await poll_linkedin()
 
 
-@router.post("/admin/news/linkedin-posts")
-async def trigger_linkedin_community() -> dict:
-    """Scrape LinkedIn community posts, process with LLM, and return results.
-
-    Full pipeline:
-      1. Apify actor scrapes EV-domain LinkedIn posts (Module 3c)
-      2. All posts ingested (no keyword filtering)
-      3. LLM summarises and ranks every post (no rejection)
-    """
-    from app.services.news.linkedin_community import poll_linkedin_community
-    from app.services.news.news_pipeline import process_unprocessed_news
-
-    scrape_result = await poll_linkedin_community()
-    if scrape_result.get("status") != "ok":
-        return {"step": "scrape", **scrape_result}
-
-    llm_result = await process_unprocessed_news()
-    return {
-        "status": "ok",
-        "scrape": scrape_result,
-        "llm_processing": llm_result,
-    }
-
-
 @router.post("/admin/news/process-now")
 async def process_news_now() -> dict:
     """Immediately process unprocessed raw news items with the LLM pipeline."""
@@ -173,7 +149,7 @@ async def news_status() -> dict:
             SELECT s.type, COUNT(r.id) AS item_count
             FROM raw_items r
             JOIN sources s ON s.id = r.source_id
-            WHERE s.type IN ('rss_global', 'custom_site', 'twitter', 'linkedin_news', 'linkedin_community')
+            WHERE s.type IN ('rss_global', 'custom_site', 'twitter', 'linkedin_news')
               AND r.ingested_at >= NOW() - INTERVAL '24 hours'
             GROUP BY s.type
             ORDER BY s.type
@@ -184,9 +160,9 @@ async def news_status() -> dict:
                 "rss_global": "Module 1 — global RSS feeds",
                 "custom_site": "Module 2 — Apify website-content-crawler (Autopunditz)",
                 "twitter": "Module 3 — Apify Twitter handle scrape (@TheStreet)",
-                "linkedin_news": "Module 3b — Apify LinkedIn hashtag search (#EV #charging #Mobility)",
-                "linkedin_community": "Module 3c — Apify LinkedIn community posts (#EV India)",
+                "linkedin_news": "Module 3b — Apify LinkedIn hashtag search (#EV #EVcharging #Emobility) — LLM classifies into LinkedIn Updates or Community Updates",
             },
         }
     finally:
         await db.close()
+

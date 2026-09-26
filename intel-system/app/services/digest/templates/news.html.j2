@@ -124,10 +124,11 @@
       'news':                'Industry News',
       'telegram':            'Telegram Highlights',
       'whatsapp':            'WhatsApp Highlights',
+      'twitter':             'Twitter Updates',
       'linkedin':            'LinkedIn Updates',
       'linkedin_community':  'LinkedIn Community Updates'
     } %}
-    {% set display_order = ['news', 'telegram', 'whatsapp', 'linkedin', 'linkedin_community'] %}
+    {% set display_order = ['news', 'telegram', 'whatsapp', 'twitter', 'linkedin', 'linkedin_community'] %}
 
     {% for sec_key in display_order %}
     {% if sec_key in sections %}

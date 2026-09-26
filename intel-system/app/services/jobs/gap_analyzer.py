@@ -134,7 +134,7 @@ Return ONLY the JSON array, no markdown fences or explanation."""
             client=client,
             model=settings.tensormux_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0,
+            temperature=0.01,
         )
         text = (response.choices[0].message.content or "").strip()
         if text.startswith("```"):

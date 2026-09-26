@@ -141,9 +141,11 @@ _MARKETING_ROLES = re.compile(
 _UNRELATED_BUSINESS_ROLES = re.compile(
     r"\b(hr\b|human\s+resources|recruiter|recruiting|talent\s+acquisition|payroll|"
     r"finance|accountant|accounting|bookkeeper|billing|audit|legal|counsel|"
-    r"office\s+manager|admin\b|administrator|receptionist|executive\s+assistant)\b",
+    r"office\s+manager|admin\b|administrator|receptionist|executive\s+assistant|"
+    r"trainer|educator|training|faculty|instructor|teacher|tutor)\b",
     re.I,
 )
+
 
 _HIRING_SIGNALS = re.compile(
     r"\b(we.?re\s+hiring|we\s+are\s+hiring|now\s+hiring|hiring\s+now|job\s+opening|"
@@ -350,9 +352,13 @@ def evaluate_job_filter(
         return result
 
     engineering_heavy = is_engineering_heavy_role(title, description)
+    unrelated_business = bool(_UNRELATED_BUSINESS_ROLES.search(title))
 
     if engineering_heavy:
         role_status = "engineering_heavy_role"
+        passed = False
+    elif unrelated_business:
+        role_status = "unrelated_business_role"
         passed = False
     else:
         role_status = "target_role"

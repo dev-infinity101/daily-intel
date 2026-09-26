@@ -157,7 +157,7 @@ Example: {{"123": "Lead the development of high-power EV charging infrastructure
             client=client,
             model=settings.tensormux_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0,
+            temperature=0.01,
             max_tokens=3000,
         )
         if not getattr(response, "choices", None):

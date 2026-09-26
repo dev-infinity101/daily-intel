@@ -15,7 +15,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://intel:intel_dev@localhost:5432/intel"
     tensormux_api_key: str = ""
-    tensormux_model: str = "gemma-4-31b"
+    tensormux_model: str = "glm-4-7-flash" 
+
     resend_api_key: str = ""
     email_from: str = "intel@example.com"
     email_to: str = ""  # comma-separated list, parsed at send time
@@ -43,8 +44,9 @@ class Settings(BaseSettings):
     changedetection_webhook_host: str = "host.docker.internal"
     changedetection_webhook_port: int = 8000
     # News module — Apify actor IDs (Modules 3 & 3b), swappable without code changes
-    apify_twitter_actor_id: str = "apidojo/twitter-user-scraper"
+    apify_twitter_actor_id: str = "apidojo/twitter-profile-scraper"
     apify_linkedin_actor_id: str = "harvestapi/linkedin-post-search"
+
     # Adzuna API credentials
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""

@@ -110,6 +110,17 @@ class TestLinkedInJobsApifyFiltering:
         assert result.passed is False
         assert result.role_status == "unrelated_business_role"
 
+    def test_rejects_trainer_role_with_ev_keywords(self) -> None:
+        """Trainer role at an EV company → rejected (unrelated business role)."""
+        result = evaluate_job_filter(
+            "EV Trainer",
+            "Deliver hands-on EV technology training to vocational students.",
+            location="Ahmedabad, Gujarat, India",
+            source_type="linkedin_jobs_apify",
+        )
+        assert result.passed is False
+        assert result.role_status == "unrelated_business_role"
+
     def test_accepts_emobility_manager(self) -> None:
         """E-Mobility keyword in title → domain pass."""
         result = evaluate_job_filter(
